@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from crewai import Agent, LLM
 
-from .config import AGENTS_DIR, get_model_for_agent
+from .config import AGENTS_DIR, LLM_TIMEOUT, OLLAMA_NUM_CTX, get_model_for_agent
 
 # Agent metadata: number -> (role, goal)
 _AGENT_META: dict[int, tuple[str, str]] = {
@@ -25,6 +25,58 @@ def _load_prompt(agent_number: int) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _ensure_ollama_context(model_name: str) -> str:
+    """For Ollama models, create a variant with a larger context window.
+
+    Ollama defaults to 4096 tokens which is too small for our prompts.
+    We create a model alias (e.g. qwen3:4b -> qwen3:4b-32k) with the
+    desired num_ctx baked into its Modelfile.
+
+    Returns the model name to use (may be the variant name).
+    """
+    if not model_name.startswith("ollama/") or not OLLAMA_NUM_CTX:
+        return model_name
+
+    import subprocess
+
+    base_model = model_name.removeprefix("ollama/")
+    variant = f"{base_model}-{OLLAMA_NUM_CTX // 1024}k"
+
+    # Check if variant already exists
+    result = subprocess.run(
+        ["ollama", "show", variant],
+        capture_output=True, text=True,
+    )
+    if result.returncode == 0:
+        return f"ollama/{variant}"
+
+    # Create variant with larger context via temp Modelfile
+    import tempfile
+    modelfile_content = f"FROM {base_model}\nPARAMETER num_ctx {OLLAMA_NUM_CTX}\n"
+    print(f"  Creating Ollama variant '{variant}' with num_ctx={OLLAMA_NUM_CTX}...")
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".Modelfile", delete=False) as f:
+        f.write(modelfile_content)
+        tmppath = f.name
+    try:
+        result = subprocess.run(
+            ["ollama", "create", variant, "-f", tmppath],
+            capture_output=True, text=True,
+        )
+    finally:
+        import os
+        os.unlink(tmppath)
+    if result.returncode != 0:
+        print(f"  WARNING: Could not create Ollama variant: {result.stderr}")
+        return model_name  # Fall back to original
+
+    print(f"  Created '{variant}' successfully.")
+    return f"ollama/{variant}"
+
+
+# Cache resolved model names so we only create variants once
+_resolved_models: dict[str, str] = {}
+
+
 def create_agent(
     agent_number: int,
     llm: LLM | None = None,
@@ -43,7 +95,11 @@ def create_agent(
     backstory = _load_prompt(agent_number)
     if llm is None:
         model_name = get_model_for_agent(agent_number, is_rerun=is_rerun)
-        llm = LLM(model=model_name)
+        # Ensure Ollama models have sufficient context window
+        if model_name not in _resolved_models:
+            _resolved_models[model_name] = _ensure_ollama_context(model_name)
+        resolved = _resolved_models[model_name]
+        llm = LLM(model=resolved, timeout=LLM_TIMEOUT)
     return Agent(
         role=role,
         goal=goal,

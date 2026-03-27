@@ -22,7 +22,15 @@ MAX_ITERATIONS = 18  # Safety limit: 3x the 6 agents in the loop
 # ---------------------------------------------------------------------------
 
 # Default model — used when no per-agent override is set
-DEFAULT_MODEL = "ollama/gemma3:27b"
+DEFAULT_MODEL = "gpt-4o-mini"
+
+# Context window size for Ollama models (default 4096 is too small for our prompts).
+# Only applies to ollama/ models. Set to 0 to use the model's default.
+OLLAMA_NUM_CTX = 16384
+
+# Timeout in seconds for LLM requests. Local Ollama models with large context
+# can be slow — set this high enough for your hardware.
+LLM_TIMEOUT = 600  # 10 minutes
 
 # Model used for re-runs (when a downstream agent triggers a re-run of an
 # earlier agent). Set to None to reuse the same model the agent normally uses.
