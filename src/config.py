@@ -22,7 +22,7 @@ MAX_ITERATIONS = 18  # Safety limit: 3x the 6 agents in the loop
 # ---------------------------------------------------------------------------
 
 # Default model — used when no per-agent override is set
-DEFAULT_MODEL = "ollama/qwen3:4b"
+DEFAULT_MODEL = "ollama/gemma3:27b"
 
 # Model used for re-runs (when a downstream agent triggers a re-run of an
 # earlier agent). Set to None to reuse the same model the agent normally uses.
