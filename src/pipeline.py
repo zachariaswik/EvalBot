@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 from crewai import Crew
@@ -44,6 +47,18 @@ class StartupEvalPipeline:
             batch_id=batch_id or f"batch-{uuid.uuid4().hex[:8]}",
         )
 
+    def _show_live_counter(self, agent_num: int, stop_event: threading.Event) -> None:
+        """Show a live-updating counter at the bottom of output, ticking every second."""
+        start = time.time()
+        while not stop_event.is_set():
+            elapsed = int(time.time() - start)
+            mins, secs = divmod(elapsed, 60)
+            # Use \r to overwrite the same line
+            print(f"\r    ⏱ Agent {agent_num} running... {mins}m {secs}s", end="", flush=True)
+            time.sleep(1)
+        # Clear the line when done
+        print("\r" + " " * 50 + "\r", end="", flush=True)
+
     def kickoff(self) -> dict[int, Any]:
         """Core while-loop running agents 1-6 with feedback jumps."""
         init_db()
@@ -58,15 +73,21 @@ class StartupEvalPipeline:
         # Track feedback reason and rerun flag
         pending_feedback_reason: str | None = None
         pending_is_rerun: bool = False
+        start_time = datetime.now()
+        agent_timings: dict[int, float] = {}  # Track per-agent execution time
 
         while self.state.current_agent <= 6 and self.state.iteration < MAX_ITERATIONS:
             self.state.iteration += 1
             agent_num = self.state.current_agent
             is_rerun = pending_is_rerun
             model_name = get_model_for_agent(agent_num, is_rerun=is_rerun)
+            elapsed = datetime.now() - start_time
+            elapsed_str = f"{elapsed.seconds // 60}m {elapsed.seconds % 60}s"
+            completed = len([k for k in self.state.agent_outputs.keys() if k < agent_num])
             print(f"\n{'='*60}")
-            print(f"  Running Agent {agent_num} | Iteration {self.state.iteration}"
-                  f" | Model: {model_name}{' (re-run)' if is_rerun else ''}")
+            print(f"  [Progress {completed}/6] Agent {agent_num}/6 | Iteration {self.state.iteration}"
+                  f" | Elapsed: {elapsed_str}")
+            print(f"  Model: {model_name}{' (re-run)' if is_rerun else ''}")
             print(f"{'='*60}\n")
 
             feedback_reason = pending_feedback_reason
@@ -86,9 +107,31 @@ class StartupEvalPipeline:
                 feedback_reason=feedback_reason,
             )
 
-            # Run single-agent crew
+            # Run single-agent crew with live counter
             crew = Crew(agents=[agent], tasks=[task], verbose=True)
-            result = crew.kickoff()
+            print(f"  ⏱ Agent {agent_num} starting at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            # Start live counter thread
+            stop_event = threading.Event()
+            agent_start = time.time()
+            counter_thread = threading.Thread(
+                target=self._show_live_counter,
+                args=(agent_num, stop_event),
+                daemon=True
+            )
+            counter_thread.start()
+            
+            try:
+                result = crew.kickoff()
+            finally:
+                stop_event.set()
+                counter_thread.join(timeout=2)
+            
+            # Record agent timing
+            agent_duration = time.time() - agent_start
+            agent_timings[agent_num] = agent_duration
+            mins, secs = divmod(int(agent_duration), 60)
+            print(f"  ✓ Agent {agent_num} completed in {mins}m {secs}s")
 
             # Extract Pydantic output
             output_model = AGENT_OUTPUT_MODELS[agent_num]
@@ -157,10 +200,20 @@ class StartupEvalPipeline:
 
         self.state.completed = True
         update_startup_status(self.state.batch_id, self.state.startup_name, "completed")
+        elapsed = datetime.now() - start_time
+        elapsed_str = f"{elapsed.seconds // 60}m {elapsed.seconds % 60}s"
         print(f"\n{'='*60}")
-        print(f"  Pipeline completed for: {self.state.startup_name}")
-        print(f"  Total iterations: {self.state.iteration}")
-        print(f"{'='*60}\n")
+        print(f"  ✓ Pipeline completed for: {self.state.startup_name}")
+        print(f"  Total iterations: {self.state.iteration} | Total elapsed: {elapsed_str}")
+        print(f"{'='*60}")
+        
+        # Display per-agent timings summary
+        print(f"\n  Per-Agent Execution Times:")
+        for agent_num in sorted(agent_timings.keys()):
+            mins, secs = divmod(int(agent_timings[agent_num]), 60)
+            print(f"    Agent {agent_num}: {mins}m {secs}s")
+        print()
+        
         return dict(self.state.agent_outputs)
 
 
@@ -174,6 +227,19 @@ def run_single(
     pipeline.state.startup_name = startup_name
     pipeline.state.submission_text = submission_text
     return pipeline.kickoff()
+
+
+def _show_live_counter_agent7(stop_event: threading.Event) -> None:
+    """Show a live-updating counter for Agent 7, ticking every second."""
+    start = time.time()
+    while not stop_event.is_set():
+        elapsed = int(time.time() - start)
+        mins, secs = divmod(elapsed, 60)
+        # Use \r to overwrite the same line
+        print(f"\r    ⏱ Agent 7 running... {mins}m {secs}s", end="", flush=True)
+        time.sleep(1)
+    # Clear the line when done
+    print("\r" + " " * 50 + "\r", end="", flush=True)
 
 
 def run_batch(
@@ -207,7 +273,29 @@ def run_batch(
     agent = create_agent(7)
     task = create_ranking_task(agent, batch_data)
     crew = Crew(agents=[agent], tasks=[task], verbose=True)
-    ranking_result = crew.kickoff()
+    
+    print(f"  ⏱ Agent 7 starting at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    # Start live counter thread for Agent 7
+    stop_event = threading.Event()
+    agent_start = time.time()
+    counter_thread = threading.Thread(
+        target=_show_live_counter_agent7,
+        args=(stop_event,),
+        daemon=True
+    )
+    counter_thread.start()
+    
+    try:
+        ranking_result = crew.kickoff()
+    finally:
+        stop_event.set()
+        counter_thread.join(timeout=2)
+    
+    # Record Agent 7 timing
+    agent_duration = time.time() - agent_start
+    mins, secs = divmod(int(agent_duration), 60)
+    print(f"  ✓ Agent 7 completed in {mins}m {secs}s")
 
     ranking_output = None
     if ranking_result.pydantic:
