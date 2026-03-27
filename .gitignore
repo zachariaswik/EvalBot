@@ -1,3 +1,6 @@
+# Environment variables (secrets — never commit)
+.env
+
 *.mov
 *.m4v
 
