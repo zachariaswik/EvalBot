@@ -1,0 +1,114 @@
+"""Factory for creating CrewAI Tasks with structured Pydantic output."""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from crewai import Agent, Task
+
+from .models import AGENT_OUTPUT_MODELS
+
+# ---------------------------------------------------------------------------
+# Expected-output descriptions for each agent
+# ---------------------------------------------------------------------------
+
+_EXPECTED_OUTPUT: dict[int, str] = {
+    1: "A structured startup brief in JSON matching the Agent1Output schema.",
+    2: "A venture analysis with scores, SWOT, and verdict in JSON matching the Agent2Output schema.",
+    3: "A market and competition analysis in JSON matching the Agent3Output schema.",
+    4: "A product and positioning analysis in JSON matching the Agent4Output schema.",
+    5: "A founder fit analysis in JSON matching the Agent5Output schema.",
+    6: "A recommendation with action plans in JSON matching the Agent6Output schema.",
+    7: "A cohort ranking in JSON matching the Agent7Output schema.",
+}
+
+_FEEDBACK_INSTRUCTION = (
+    "\n\n---\n"
+    "FEEDBACK LOOP INSTRUCTION:\n"
+    "If you believe an earlier agent's output is missing critical information, "
+    "contains errors, or is insufficient for your analysis, you may request a "
+    "re-run by setting `rerun_from_agent` to the agent number (1-{max_agent}) "
+    "and `rerun_reason` to a brief explanation. Only do this if the issue is "
+    "significant enough to affect your analysis quality. Otherwise leave these "
+    "fields as null."
+)
+
+
+def _build_description(
+    agent_number: int,
+    submission_text: str,
+    prior_context: dict[int, Any] | None,
+    feedback_reason: str | None,
+) -> str:
+    """Build the task description for a given agent."""
+    parts: list[str] = []
+
+    if feedback_reason:
+        parts.append(
+            f"NOTE: This is a RE-RUN triggered by a downstream agent.\n"
+            f"Reason for re-run: {feedback_reason}\n"
+            f"Please address this feedback in your analysis.\n"
+        )
+
+    if agent_number == 1:
+        parts.append("Analyze the following startup submission and produce a structured startup brief.\n")
+        parts.append(f"STARTUP SUBMISSION:\n\n{submission_text}")
+    else:
+        parts.append("Analyze the following startup based on the accumulated analysis so far.\n")
+        parts.append(f"ORIGINAL SUBMISSION:\n\n{submission_text}\n")
+        if prior_context:
+            parts.append("PRIOR AGENT OUTPUTS:\n")
+            for num in sorted(prior_context.keys()):
+                data = prior_context[num]
+                if isinstance(data, dict):
+                    formatted = json.dumps(data, indent=2, default=str)
+                else:
+                    formatted = str(data)
+                parts.append(f"\n--- Agent {num} Output ---\n{formatted}\n")
+
+    # Add feedback instruction for agents 2-6
+    if 2 <= agent_number <= 6:
+        parts.append(_FEEDBACK_INSTRUCTION.format(max_agent=agent_number - 1))
+
+    return "\n".join(parts)
+
+
+def create_task(
+    agent_number: int,
+    agent: Agent,
+    submission_text: str,
+    prior_context: dict[int, Any] | None = None,
+    feedback_reason: str | None = None,
+) -> Task:
+    """Create a CrewAI Task for the given agent with structured Pydantic output."""
+    description = _build_description(agent_number, submission_text, prior_context, feedback_reason)
+    output_model = AGENT_OUTPUT_MODELS[agent_number]
+
+    return Task(
+        description=description,
+        expected_output=_EXPECTED_OUTPUT[agent_number],
+        agent=agent,
+        output_pydantic=output_model,
+    )
+
+
+def create_ranking_task(
+    agent: Agent,
+    batch_data: list[dict],
+) -> Task:
+    """Create the Agent 7 ranking task from accumulated batch data."""
+    parts = ["Rank the following startups relative to each other.\n"]
+    for entry in batch_data:
+        name = entry["startup_name"]
+        outputs = entry["outputs"]
+        parts.append(f"\n{'='*60}\nSTARTUP: {name}\n{'='*60}\n")
+        for num in sorted(outputs.keys()):
+            parts.append(f"\n--- Agent {num} Output ---\n{json.dumps(outputs[num], indent=2, default=str)}\n")
+
+    return Task(
+        description="\n".join(parts),
+        expected_output=_EXPECTED_OUTPUT[7],
+        agent=agent,
+        output_pydantic=AGENT_OUTPUT_MODELS[7],
+    )
