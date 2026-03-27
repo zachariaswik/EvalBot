@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -11,7 +12,23 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from src.docs import load_submission
-from src.pipeline import run_batch, run_single
+
+
+def _ensure_supported_python() -> None:
+    """CrewAI stack used by this project is not compatible with Python 3.14+."""
+    if sys.version_info < (3, 14):
+        return
+
+    project_root = Path(__file__).resolve().parent
+    py313 = project_root / ".venv313" / "bin" / "python"
+
+    if py313.exists() and Path(sys.executable).resolve() != py313.resolve():
+        print("Python 3.14 detected; re-launching with .venv313 for compatibility...\n")
+        os.execv(str(py313), [str(py313), str(Path(__file__).resolve()), *sys.argv[1:]])
+
+    print("EvalBot currently requires Python 3.13 or earlier.")
+    print("Create .venv313 and run with: .venv313/bin/python main.py")
+    sys.exit(1)
 
 
 def _extract_startup_name(text: str) -> str:
@@ -24,6 +41,9 @@ def _extract_startup_name(text: str) -> str:
 
 
 def main() -> None:
+    _ensure_supported_python()
+    from src.pipeline import run_batch, run_single
+
     args = sys.argv[1:]
 
     if not args:
