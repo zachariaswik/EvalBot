@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import os
 import sys
+import uuid
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -13,14 +15,15 @@ load_dotenv()
 
 from src.docs import load_submission
 
+PROJECT_ROOT = Path(__file__).resolve().parent
+
 
 def _ensure_supported_python() -> None:
     """CrewAI stack used by this project is not compatible with Python 3.14+."""
     if sys.version_info < (3, 14):
         return
 
-    project_root = Path(__file__).resolve().parent
-    py313 = project_root / ".venv313" / "bin" / "python"
+    py313 = PROJECT_ROOT / ".venv313" / "bin" / "python"
 
     if py313.exists() and Path(sys.executable).resolve() != py313.resolve():
         print("Python 3.14 detected; re-launching with .venv313 for compatibility...\n")
@@ -40,6 +43,36 @@ def _extract_startup_name(text: str) -> str:
     return "Unknown Startup"
 
 
+def _sanitize_filename(name: str) -> str:
+    """Make a string safe for use as a filename."""
+    return "".join(c if c.isalnum() or c in " _-" else "_" for c in name).strip()
+
+
+def export_results(
+    batch_id: str,
+    individual: dict[str, dict[int, Any]],
+    ranking: dict[str, Any] | None = None,
+) -> Path:
+    """Write pipeline results as JSON files to output/<batch_id>/."""
+    out_dir = PROJECT_ROOT / "output" / batch_id
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    for startup_name, agent_outputs in individual.items():
+        filename = _sanitize_filename(startup_name) + ".json"
+        (out_dir / filename).write_text(
+            json.dumps(agent_outputs, indent=2, default=str),
+            encoding="utf-8",
+        )
+
+    if ranking is not None:
+        (out_dir / "ranking.json").write_text(
+            json.dumps(ranking, indent=2, default=str),
+            encoding="utf-8",
+        )
+
+    return out_dir
+
+
 def main() -> None:
     _ensure_supported_python()
     from src.pipeline import run_batch, run_single
@@ -50,15 +83,20 @@ def main() -> None:
         # Default: process CourseDocs
         print("No arguments — processing CourseDocs as a single submission.\n")
         submission = load_submission()
+        batch_id = f"batch-{uuid.uuid4().hex[:8]}"
         result = run_single(
             startup_name="CourseDocs Startup",
             submission_text=submission,
+            batch_id=batch_id,
         )
         print("\n\nFINAL RESULTS")
         print("=" * 60)
         for agent_num in sorted(result.keys()):
             print(f"\n--- Agent {agent_num} ---")
             print(json.dumps(result[agent_num], indent=2, default=str))
+
+        out_dir = export_results(batch_id, {"CourseDocs Startup": result})
+        print(f"\nResults saved to: {out_dir}")
         return
 
     mode = args[0]
@@ -73,12 +111,16 @@ def main() -> None:
             sys.exit(1)
         submission = load_submission(path)
         name = _extract_startup_name(submission)
-        result = run_single(startup_name=name, submission_text=submission)
+        batch_id = f"batch-{uuid.uuid4().hex[:8]}"
+        result = run_single(startup_name=name, submission_text=submission, batch_id=batch_id)
         print("\n\nFINAL RESULTS")
         print("=" * 60)
         for agent_num in sorted(result.keys()):
             print(f"\n--- Agent {agent_num} ---")
             print(json.dumps(result[agent_num], indent=2, default=str))
+
+        out_dir = export_results(batch_id, {name: result})
+        print(f"\nResults saved to: {out_dir}")
 
     elif mode == "batch":
         if len(args) < 2:
@@ -111,7 +153,8 @@ def main() -> None:
             sys.exit(1)
 
         print(f"Found {len(submissions)} submissions: {list(submissions.keys())}\n")
-        result = run_batch(submissions)
+        batch_id = f"batch-{uuid.uuid4().hex[:8]}"
+        result = run_batch(submissions, batch_id=batch_id)
 
         print("\n\nINDIVIDUAL RESULTS")
         print("=" * 60)
@@ -127,6 +170,9 @@ def main() -> None:
             print("\n\nCOHORT RANKING")
             print("=" * 60)
             print(json.dumps(result["ranking"], indent=2, default=str))
+
+        out_dir = export_results(batch_id, result["individual"], result["ranking"])
+        print(f"\nResults saved to: {out_dir}")
 
     else:
         print(f"Unknown mode: {mode}")

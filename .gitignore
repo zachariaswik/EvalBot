@@ -9,6 +9,9 @@
 *.sqlite
 *.sqlite3
 
+# Pipeline output (JSON results)
+output/
+
 # Python cache
 __pycache__/
 *.pyc
