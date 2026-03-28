@@ -90,13 +90,24 @@ def main() -> None:
             sys.exit(1)
 
         submissions: dict[str, str] = {}
-        for f in sorted(folder.glob("*.md")):
-            text = f.read_text(encoding="utf-8")
-            name = _extract_startup_name(text)
-            submissions[name] = text
+        subdirs = sorted([d for d in folder.iterdir() if d.is_dir() and not d.name.startswith(".")])
+        if subdirs:
+            # New structure: each subfolder is one startup
+            for subdir in subdirs:
+                md_files = sorted(subdir.glob("*.md"))
+                if not md_files:
+                    continue
+                combined = "\n\n".join(f.read_text(encoding="utf-8") for f in md_files)
+                submissions[subdir.name] = combined
+        else:
+            # Legacy: .md files directly in the folder
+            for f in sorted(folder.glob("*.md")):
+                text = f.read_text(encoding="utf-8")
+                name = _extract_startup_name(text)
+                submissions[name] = text
 
         if not submissions:
-            print(f"No .md files found in {folder}")
+            print(f"No startup submissions found in {folder}")
             sys.exit(1)
 
         print(f"Found {len(submissions)} submissions: {list(submissions.keys())}\n")
