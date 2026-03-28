@@ -163,6 +163,7 @@ class Agent5Output(FeedbackMixin):
     technical: str = Field(description="Technical strength assessment")
     distribution: str = Field(description="Distribution / sales ability")
     strategy: str = Field(description="Strategic clarity")
+    ambition: str = Field(description="Ambition level assessment")
     execution: str = Field(description="Execution confidence assessment")
     missing_roles: list[str] = Field(default_factory=list, description="Missing roles or capabilities")
     risks: list[str] = Field(default_factory=list, description="Team risks")

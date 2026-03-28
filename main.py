@@ -91,9 +91,12 @@ def main() -> None:
         )
         print("\n\nFINAL RESULTS")
         print("=" * 60)
-        for agent_num in sorted(result.keys()):
+        for agent_num in sorted(k for k in result.keys() if isinstance(k, int)):
             print(f"\n--- Agent {agent_num} ---")
             print(json.dumps(result[agent_num], indent=2, default=str))
+        if "_tags" in result:
+            print(f"\n--- Tags ---")
+            print(json.dumps(result["_tags"], indent=2, default=str))
 
         out_dir = export_results(batch_id, {"CourseDocs Startup": result})
         print(f"\nResults saved to: {out_dir}")
@@ -162,9 +165,12 @@ def main() -> None:
             print(f"\n{'#'*40}")
             print(f"  {name}")
             print(f"{'#'*40}")
-            for agent_num in sorted(outputs.keys()):
+            for agent_num in sorted(k for k in outputs.keys() if isinstance(k, int)):
                 print(f"\n--- Agent {agent_num} ---")
                 print(json.dumps(outputs[agent_num], indent=2, default=str))
+            if "_tags" in outputs:
+                print(f"\n--- Tags ---")
+                print(json.dumps(outputs["_tags"], indent=2, default=str))
 
         if result["ranking"]:
             print("\n\nCOHORT RANKING")

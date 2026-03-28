@@ -8,6 +8,12 @@ DB_PATH = PROJECT_ROOT / "evalbot.db"
 MAX_ITERATIONS = 18  # Safety limit: 3x the 6 agents in the loop
 
 # ---------------------------------------------------------------------------
+# Intake Quality Gate
+# ---------------------------------------------------------------------------
+CRITICAL_FIELDS = ["problem", "solution", "target_customer", "market", "business_model", "team"]
+QUALITY_GATE_THRESHOLD = 3  # Warn if >= this many critical fields are missing
+
+# ---------------------------------------------------------------------------
 # LLM Configuration
 # ---------------------------------------------------------------------------
 # Supported model string formats (CrewAI uses litellm under the hood):

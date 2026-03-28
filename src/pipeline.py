@@ -13,7 +13,7 @@ from typing import Any
 from crewai import Crew
 
 from .agents import create_agent
-from .config import MAX_ITERATIONS, get_model_for_agent
+from .config import CRITICAL_FIELDS, MAX_ITERATIONS, QUALITY_GATE_THRESHOLD, get_model_for_agent
 from .db import (
     create_batch,
     get_all_batch_outputs,
@@ -26,6 +26,102 @@ from .db import (
 )
 from .models import AGENT_OUTPUT_MODELS, FeedbackMixin
 from .tasks import create_ranking_task, create_task
+
+
+def _compute_weighted_score(output_dict: dict) -> tuple[float, str]:
+    """Compute the weighted total score and tier from Agent 2 output."""
+    weighted = (
+        output_dict.get("score_problem_severity", 0) * 0.20
+        + output_dict.get("score_market_size", 0) * 0.20
+        + output_dict.get("score_differentiation", 0) * 0.15
+        + output_dict.get("score_founder_insight", 0) * 0.15
+        + output_dict.get("score_moat_potential", 0) * 0.10
+        + output_dict.get("score_business_model", 0) * 0.10
+        + output_dict.get("score_venture_potential", 0) * 0.10
+    ) * 8  # Scale to 0-80 range
+
+    if weighted >= 64:
+        tier = "Top tier"
+    elif weighted >= 52:
+        tier = "Strong"
+    elif weighted >= 40:
+        tier = "Medium"
+    elif weighted >= 28:
+        tier = "Weak"
+    else:
+        tier = "Reject"
+
+    return round(weighted, 2), tier
+
+
+def _check_reject_signals(output_dict: dict) -> list[str]:
+    """Check for hard reject signals from Agent 2 scores."""
+    signal_map = {
+        "score_problem_severity": "No real pain",
+        "score_market_size": "Tiny market",
+        "score_customer_clarity": "No clear buyer",
+        "score_founder_insight": "Weak founder understanding",
+        "score_differentiation": "No differentiation / no wedge",
+    }
+    signals = []
+    for field, label in signal_map.items():
+        if output_dict.get(field, 10) <= 3:
+            signals.append(label)
+    return signals
+
+
+def _compute_tags(agent_outputs: dict[int, Any]) -> list[str]:
+    """Compute automatic tags from all agent outputs."""
+    tags: list[str] = []
+
+    # Score-based tags from Agent 2
+    a2 = agent_outputs.get(2, {})
+    if a2:
+        if a2.get("score_market_size", 0) >= 7:
+            tags.append("large_market")
+        elif a2.get("score_market_size", 10) <= 3:
+            tags.append("small_market")
+
+        if a2.get("score_moat_potential", 0) >= 7:
+            tags.append("strong_moat")
+        elif a2.get("score_moat_potential", 10) <= 3:
+            tags.append("no_moat")
+
+        if a2.get("score_founder_insight", 0) >= 7:
+            tags.append("strong_founder_fit")
+        elif a2.get("score_founder_insight", 10) <= 3:
+            tags.append("weak_founder_fit")
+
+        if a2.get("score_differentiation", 0) >= 7:
+            tags.append("good_wedge")
+        elif a2.get("score_differentiation", 10) <= 3:
+            tags.append("no_wedge")
+
+        if a2.get("score_customer_clarity", 10) <= 3:
+            tags.append("unclear_buyer")
+
+        # Verdict-based tags
+        verdict = a2.get("verdict", "")
+        if verdict == "Feature, Not a Company":
+            tags.append("feature_not_company")
+        if verdict == "AI Wrapper With Weak Moat":
+            tags.append("wrapper_risk")
+
+    # Agent 4 tags
+    a4 = agent_outputs.get(4, {})
+    if a4 and a4.get("wrapper_risk") == "high" and "wrapper_risk" not in tags:
+        tags.append("wrapper_risk")
+
+    # Agent 3 tags
+    a3 = agent_outputs.get(3, {})
+    if a3:
+        if a3.get("size_class") == "small" and "small_market" not in tags:
+            tags.append("small_market")
+        crowdedness = a3.get("crowdedness", "")
+        if isinstance(crowdedness, str) and "crowded" in crowdedness.lower():
+            tags.append("crowded_market")
+
+    return tags
 
 
 @dataclass
@@ -160,6 +256,37 @@ class StartupEvalPipeline:
                 iteration=self.state.iteration,
             )
 
+            # --- Post-agent checks ---
+
+            # Quality gate after Agent 1
+            if agent_num == 1 and pydantic_output:
+                missing = output_dict.get("missing_info", [])
+                missing_critical = [f for f in CRITICAL_FIELDS if any(f in m.lower() for m in missing)]
+                if len(missing_critical) >= QUALITY_GATE_THRESHOLD:
+                    print(f"\n  {'!'*50}")
+                    print(f"  ⚠ QUALITY GATE WARNING: {len(missing_critical)} critical fields missing")
+                    print(f"  Missing: {', '.join(missing_critical)}")
+                    print(f"  Raw missing_info from Agent 1: {missing}")
+                    print(f"  {'!'*50}\n")
+
+            # Weighted scoring + reject signals after Agent 2
+            if agent_num == 2 and pydantic_output:
+                weighted_score, score_tier = _compute_weighted_score(output_dict)
+                output_dict["weighted_total_score"] = weighted_score
+                output_dict["score_tier"] = score_tier
+                self.state.agent_outputs[agent_num] = output_dict  # update with new fields
+
+                print(f"\n  Weighted Score: {weighted_score}/80 — {score_tier}")
+
+                reject_signals = _check_reject_signals(output_dict)
+                output_dict["reject_signals"] = reject_signals
+                if len(reject_signals) >= 3:
+                    print(f"\n  {'!'*50}")
+                    print(f"  ⛔ HARD REJECT SIGNALS ({len(reject_signals)} detected):")
+                    for sig in reject_signals:
+                        print(f"     - {sig}")
+                    print(f"  {'!'*50}\n")
+
             # Check for feedback loop (agents 2-6 only)
             if pydantic_output and isinstance(pydantic_output, FeedbackMixin):
                 rerun_from = pydantic_output.rerun_from_agent
@@ -197,6 +324,12 @@ class StartupEvalPipeline:
             # Advance to next agent
             print(f"  Agent {agent_num} completed successfully.")
             self.state.current_agent = agent_num + 1
+
+        # Compute automatic tags from all agent outputs
+        tags = _compute_tags(self.state.agent_outputs)
+        self.state.agent_outputs["_tags"] = tags
+        if tags:
+            print(f"\n  Tags: {', '.join(tags)}")
 
         self.state.completed = True
         update_startup_status(self.state.batch_id, self.state.startup_name, "completed")
