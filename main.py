@@ -735,9 +735,21 @@ def _run_single_agent(
     )
     timer_thread.start()
 
+    def _usage_parts(u: Any) -> tuple[int, int, int]:
+        return (
+            int(getattr(u, "prompt_tokens", 0) or 0),
+            int(getattr(u, "completion_tokens", 0) or 0),
+            int(getattr(u, "total_tokens", 0) or 0),
+        )
+
+    usage_acc = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     result = None
     try:
         result = crew.kickoff()
+        p, c, t = _usage_parts(result.token_usage)
+        usage_acc["prompt_tokens"] += p
+        usage_acc["completion_tokens"] += c
+        usage_acc["total_tokens"] += t
     except Exception as exc:
         # Some providers (e.g. MiniMax) trigger "multiple tool calls" errors
         # with structured output. Retry without Pydantic output and parse raw.
@@ -756,6 +768,10 @@ def _run_single_agent(
             )
             crew_fallback = Crew(agents=[agent], tasks=[task_fallback], verbose=False)
             result = crew_fallback.kickoff()
+            p, c, t = _usage_parts(result.token_usage)
+            usage_acc["prompt_tokens"] += p
+            usage_acc["completion_tokens"] += c
+            usage_acc["total_tokens"] += t
         else:
             raise
     finally:
@@ -787,16 +803,61 @@ def _run_single_agent(
                 print(f"    ✓ Agent {agent_number} JSON repaired successfully")
                 output_dict = repaired
             else:
-                print(f"    ⚠ JSON repair failed for Agent {agent_number}")
-                output_dict = {"raw_output": result.raw}
+                # High-impact agents (2, 6): do one strict rerun before giving up.
+                if agent_number in {2, 6}:
+                    print(f"    ⚠ JSON repair failed for Agent {agent_number}; running strict format rerun...")
+                    field_names = ", ".join(output_model.model_fields.keys())
+                    strict_task = Task(
+                        description=(
+                            task.description
+                            + "\n\nCRITICAL OUTPUT REQUIREMENT:\n"
+                            + "Return EXACTLY one valid JSON object and nothing else.\n"
+                            + "Do not include markdown, backticks, commentary, or prose.\n"
+                            + f"Required top-level keys: {field_names}.\n"
+                            + "All required fields must be present and valid."
+                        ),
+                        expected_output=task.expected_output,
+                        agent=agent,
+                    )
+                    strict_crew = Crew(agents=[agent], tasks=[strict_task], verbose=False)
+                    strict_result = None
+                    try:
+                        strict_result = strict_crew.kickoff()
+                        p, c, t = _usage_parts(strict_result.token_usage)
+                        usage_acc["prompt_tokens"] += p
+                        usage_acc["completion_tokens"] += c
+                        usage_acc["total_tokens"] += t
+                    except Exception:
+                        strict_result = None
+
+                    strict_parsed = None
+                    if strict_result is not None:
+                        if strict_result.pydantic:
+                            strict_parsed = strict_result.pydantic.model_dump(mode="json")
+                        else:
+                            strict_parsed = _parse_output_to_dict(output_model, strict_result.raw)
+                            if strict_parsed is None:
+                                try:
+                                    strict_parsed = _repair_output_to_json(agent, output_model, strict_result.raw)
+                                except Exception:
+                                    strict_parsed = None
+
+                    if strict_parsed is not None:
+                        print(f"    ✓ Agent {agent_number} strict rerun produced valid JSON")
+                        output_dict = strict_parsed
+                    else:
+                        print(f"    ⚠ Agent {agent_number} strict rerun also failed")
+                        output_dict = {"raw_output": result.raw, "_parse_failed": True}
+                else:
+                    print(f"    ⚠ JSON repair failed for Agent {agent_number}")
+                    output_dict = {"raw_output": result.raw, "_parse_failed": True}
 
     # Token usage
-    usage = result.token_usage
     usage_dict = {
         "model": model_name,
-        "prompt_tokens": getattr(usage, "prompt_tokens", 0),
-        "completion_tokens": getattr(usage, "completion_tokens", 0),
-        "total_tokens": getattr(usage, "total_tokens", 0),
+        "prompt_tokens": usage_acc["prompt_tokens"],
+        "completion_tokens": usage_acc["completion_tokens"],
+        "total_tokens": usage_acc["total_tokens"],
     }
 
     return output_dict, usage_dict
@@ -964,6 +1025,23 @@ def run_generate(config: dict[str, Any]) -> None:
             )
             print(f"    • [Agent 2: Venture Analyst] Scoring...")  
 
+            # Do not score unparseable Agent 2 output as 0/N/A.
+            if a2_output.get("_parse_failed"):
+                print("    ⚠ Agent 2 output was not parseable JSON. Skipping scoring for this attempt.")
+                screening_feedback = {
+                    "verdict": "Parse Failure",
+                    "explanation": (
+                        "Agent 2 returned output that could not be parsed into the required schema. "
+                        "Return exactly one valid JSON object with all required keys and valid enum values."
+                    ),
+                }
+                if attempt < INNER_LOOP_MAX_ATTEMPTS:
+                    print("  └─ ✗ INVALID Agent 2 output format")
+                    print("     ↻ Retrying with stricter formatting feedback...")
+                else:
+                    print("  └─ ✗ INVALID Agent 2 output format (final inner attempt)")
+                continue
+
             # Compute weighted score
             weighted_score, score_tier = _compute_weighted_score(a2_output)
             a2_output["weighted_total_score"] = weighted_score
@@ -1017,7 +1095,7 @@ def run_generate(config: dict[str, Any]) -> None:
         print(f"  Full Evaluation Phase")
         print(f"  {startup_name}")
         print(f"  (Inner attempt {used_attempt}/{INNER_LOOP_MAX_ATTEMPTS}, score {best_attempt['score']}/80)")
-        print(f"  Running Agents 3-6...""")
+        print(f"  Running Agents 3-6...")
         print(f"  ──────────────────────────────────────\n")
 
         # Build prior context for agents 3-6

@@ -209,6 +209,33 @@ def create_agent0_task(
         else:
             parts.append("\nUse this feedback to generate a FUNDAMENTALLY IMPROVED idea.\n")
 
+    # Require a rich, consistently structured submission so Agent 1 can parse all fields.
+    parts.append(
+        "SUBMISSION_TEXT FORMAT REQUIREMENTS (MANDATORY):\n"
+        "Your `submission_text` must be a complete startup brief with ALL sections below.\n"
+        "Do not leave any section empty. Do not use placeholders like 'N/A', 'Unknown', or 'TBD'.\n"
+        "Use these exact section headings in this order:\n"
+        "1) Problem\n"
+        "2) Solution\n"
+        "3) Target Customer\n"
+        "4) Buyer\n"
+        "5) Market\n"
+        "6) Business Model\n"
+        "7) Competitors\n"
+        "8) Traction\n"
+        "9) Team\n"
+        "10) Why Now\n"
+        "11) Vision\n"
+        "12) Unfair Advantage\n"
+        "13) Risks\n\n"
+        "Quality bar per section:\n"
+        "- Provide concrete, startup-specific details (not generic statements).\n"
+        "- Use at least 1-2 full sentences per section.\n"
+        "- Ensure Buyer can differ from Target Customer when relevant.\n"
+        "- Include at least one clear competitor/alternative in Competitors.\n"
+        "- If traction is pre-launch, still provide a realistic traction plan or early evidence.\n"
+    )
+
     description = "\n".join(parts) + _json_only_instruction(0)
 
     return Task(
