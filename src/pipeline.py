@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import threading
 import time
-import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -138,9 +137,9 @@ class PipelineState:
 class StartupEvalPipeline:
     """Run agents 1-6 sequentially with feedback-loop support."""
 
-    def __init__(self, batch_id: str | None = None):
+    def __init__(self, batch_id: str):
         self.state = PipelineState(
-            batch_id=batch_id or f"batch-{uuid.uuid4().hex[:8]}",
+            batch_id=batch_id,
         )
 
     def _show_live_counter(self, agent_num: int, stop_event: threading.Event) -> None:
@@ -171,6 +170,7 @@ class StartupEvalPipeline:
         pending_is_rerun: bool = False
         start_time = datetime.now()
         agent_timings: dict[int, float] = {}  # Track per-agent execution time
+        agent_usage: dict[int, dict] = {}  # Track per-agent token usage
 
         while self.state.current_agent <= 6 and self.state.iteration < MAX_ITERATIONS:
             self.state.iteration += 1
@@ -228,6 +228,15 @@ class StartupEvalPipeline:
             agent_timings[agent_num] = agent_duration
             mins, secs = divmod(int(agent_duration), 60)
             print(f"  ✓ Agent {agent_num} completed in {mins}m {secs}s")
+
+            # Capture token usage
+            usage = result.token_usage
+            agent_usage[agent_num] = {
+                "model": model_name,
+                "prompt_tokens": getattr(usage, "prompt_tokens", 0),
+                "completion_tokens": getattr(usage, "completion_tokens", 0),
+                "total_tokens": getattr(usage, "total_tokens", 0),
+            }
 
             # Extract Pydantic output
             output_model = AGENT_OUTPUT_MODELS[agent_num]
@@ -328,6 +337,7 @@ class StartupEvalPipeline:
         # Compute automatic tags from all agent outputs
         tags = _compute_tags(self.state.agent_outputs)
         self.state.agent_outputs["_tags"] = tags
+        self.state.agent_outputs["_usage"] = agent_usage
         if tags:
             print(f"\n  Tags: {', '.join(tags)}")
 
@@ -353,7 +363,7 @@ class StartupEvalPipeline:
 def run_single(
     startup_name: str,
     submission_text: str,
-    batch_id: str | None = None,
+    batch_id: str,
 ) -> dict[int, Any]:
     """Run the pipeline for a single startup submission."""
     pipeline = StartupEvalPipeline(batch_id=batch_id)
@@ -377,10 +387,10 @@ def _show_live_counter_agent7(stop_event: threading.Event) -> None:
 
 def run_batch(
     submissions: dict[str, str],
-    batch_id: str | None = None,
+    batch_id: str,
 ) -> dict:
     """Run agents 1-6 for each startup, then Agent 7 ranking."""
-    bid = batch_id or f"batch-{uuid.uuid4().hex[:8]}"
+    bid = batch_id
 
     # Run agents 1-6 for each startup
     all_results: dict[str, dict] = {}
@@ -403,6 +413,7 @@ def run_batch(
         print("  No batch data available for ranking.")
         return {"individual": all_results, "ranking": None}
 
+    model_name_7 = get_model_for_agent(7)
     agent = create_agent(7)
     task = create_ranking_task(agent, batch_data)
     crew = Crew(agents=[agent], tasks=[task], verbose=True)
@@ -430,6 +441,17 @@ def run_batch(
     mins, secs = divmod(int(agent_duration), 60)
     print(f"  ✓ Agent 7 completed in {mins}m {secs}s")
 
+    # Capture Agent 7 token usage
+    usage_7 = ranking_result.token_usage
+    agent7_usage = {
+        7: {
+            "model": model_name_7,
+            "prompt_tokens": getattr(usage_7, "prompt_tokens", 0),
+            "completion_tokens": getattr(usage_7, "completion_tokens", 0),
+            "total_tokens": getattr(usage_7, "total_tokens", 0),
+        }
+    }
+
     ranking_output = None
     if ranking_result.pydantic:
         ranking_output = ranking_result.pydantic.model_dump(mode="json")
@@ -451,4 +473,4 @@ def run_batch(
         iteration=1,
     )
 
-    return {"individual": all_results, "ranking": ranking_output}
+    return {"individual": all_results, "ranking": ranking_output, "ranking_usage": agent7_usage}
