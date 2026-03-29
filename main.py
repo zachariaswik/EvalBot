@@ -5,6 +5,9 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
+import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +18,19 @@ load_dotenv()
 from src.docs import load_submission
 
 PROJECT_ROOT = Path(__file__).resolve().parent
+
+
+def _next_generated_id() -> str:
+    """Return the next sequential generated ID (generated_1, generated_2, ...)."""
+    output_dir = PROJECT_ROOT / "output"
+    if not output_dir.exists():
+        return "generated_1"
+    existing = [
+        int(d.name.split("_")[1])
+        for d in output_dir.iterdir()
+        if d.is_dir() and d.name.startswith("generated_") and d.name.split("_")[1].isdigit()
+    ]
+    return f"generated_{max(existing) + 1}" if existing else "generated_1"
 
 
 def _next_batch_id() -> str:
@@ -61,6 +77,7 @@ def _sanitize_filename(name: str) -> str:
 
 
 AGENT_ROLES = {
+    0: "Startup Idea Generator",
     1: "Intake Parser",
     2: "Venture Analyst",
     3: "Market & Competition Analyst",
@@ -180,6 +197,7 @@ def _write_startup_report(
     startup_name: str, agent_outputs: dict[int | str, Any], path: Path
 ) -> None:
     """Write a human-readable markdown report for a single startup."""
+    a0 = agent_outputs.get(0) or agent_outputs.get("0") or {}
     a1 = agent_outputs.get(1) or agent_outputs.get("1") or {}
     a2 = agent_outputs.get(2) or agent_outputs.get("2") or {}
     a3 = agent_outputs.get(3) or agent_outputs.get("3") or {}
@@ -187,6 +205,7 @@ def _write_startup_report(
     a5 = agent_outputs.get(5) or agent_outputs.get("5") or {}
     a6 = agent_outputs.get(6) or agent_outputs.get("6") or {}
     tags = agent_outputs.get("_tags") or []
+    gen_meta = agent_outputs.get("_gen_meta") or {}
 
     def g(d: dict, key: str, fallback: str = "N/A") -> str:
         v = d.get(key)
@@ -214,6 +233,16 @@ def _write_startup_report(
 
     lines.append("---")
     lines.append("")
+
+    # --- Agent 0: Idea Generation (only if present) ---
+    if a0:
+        lines.append("## 0. Idea Generation (Agent 0)")
+        lines.append("")
+        if gen_meta:
+            lines.append(f"**Round:** {gen_meta.get('round', 'N/A')} | **Attempt:** {gen_meta.get('attempt', 'N/A')}")
+            lines.append("")
+        lines.append(f"**Strategy Notes:** {g(a0, 'strategy_notes')}")
+        lines.append("")
 
     # --- Agent 1: Startup Brief ---
     lines.append("## 1. Startup Brief (Agent 1)")
@@ -461,6 +490,434 @@ def export_results(
     return out_dir
 
 
+SCREENING_THRESHOLD = 50  # Weighted score on 0-80 scale
+INNER_LOOP_MAX_ATTEMPTS = 5
+
+
+def _show_agent_timer(
+    agent_number: int, model_name: str, stop_event: threading.Event
+) -> None:
+    """Show a live-updating elapsed timer for a running agent."""
+    role = AGENT_ROLES.get(agent_number, "Unknown")
+    start = time.time()
+    while not stop_event.is_set():
+        elapsed = int(time.time() - start)
+        mins, secs = divmod(elapsed, 60)
+        print(
+            f"\r    ⏱ Agent {agent_number} ({role}) [{model_name}] ... {mins}m {secs}s",
+            end="",
+            flush=True,
+        )
+        time.sleep(1)
+    # Clear the timer line
+    print("\r" + " " * 80 + "\r", end="", flush=True)
+
+
+def _run_single_agent(
+    agent_number: int,
+    submission_text: str,
+    prior_context: dict[int, Any] | None = None,
+    agent0_task_kwargs: dict[str, Any] | None = None,
+) -> tuple[dict, dict]:
+    """Run a single agent in a one-agent CrewAI Crew and return (output_dict, usage_dict).
+
+    For Agent 0, pass agent0_task_kwargs with the arguments for create_agent0_task().
+    For Agents 1-6, uses the standard create_task().
+    """
+    from crewai import Crew
+
+    from src.agents import create_agent
+    from src.config import get_model_for_agent
+    from src.models import AGENT_OUTPUT_MODELS
+    from src.tasks import create_agent0_task, create_task
+
+    model_name = get_model_for_agent(agent_number)
+    role = AGENT_ROLES.get(agent_number, "Unknown")
+    agent = create_agent(agent_number)
+
+    if agent_number == 0:
+        task = create_agent0_task(agent=agent, **(agent0_task_kwargs or {}))
+    else:
+        task = create_task(
+            agent_number=agent_number,
+            agent=agent,
+            submission_text=submission_text,
+            prior_context=prior_context,
+        )
+
+    crew = Crew(agents=[agent], tasks=[task], verbose=False)
+
+    # Start live timer
+    stop_event = threading.Event()
+    agent_start = time.time()
+    timer_thread = threading.Thread(
+        target=_show_agent_timer,
+        args=(agent_number, model_name, stop_event),
+        daemon=True,
+    )
+    timer_thread.start()
+
+    try:
+        result = crew.kickoff()
+    finally:
+        stop_event.set()
+        timer_thread.join(timeout=2)
+
+    # Report completion time
+    duration = time.time() - agent_start
+    mins, secs = divmod(int(duration), 60)
+    print(f"    ✓ Agent {agent_number} ({role}) completed in {mins}m {secs}s")
+
+    # Extract output
+    output_model = AGENT_OUTPUT_MODELS[agent_number]
+    if result.pydantic:
+        output_dict = result.pydantic.model_dump(mode="json")
+    else:
+        try:
+            parsed = output_model.model_validate_json(result.raw)
+            output_dict = parsed.model_dump(mode="json")
+        except Exception:
+            output_dict = {"raw_output": result.raw}
+
+    # Token usage
+    usage = result.token_usage
+    usage_dict = {
+        "model": model_name,
+        "prompt_tokens": getattr(usage, "prompt_tokens", 0),
+        "completion_tokens": getattr(usage, "completion_tokens", 0),
+        "total_tokens": getattr(usage, "total_tokens", 0),
+    }
+
+    return output_dict, usage_dict
+
+
+def _parse_generate_args(args: list[str]) -> dict[str, Any]:
+    """Parse CLI flags for the generate command into a config dict."""
+    config: dict[str, Any] = {
+        "team_size": 1,
+        "experience": "Founder starting from scratch without any previous experience to help him",
+        "network": None,
+        "availability": "100%",
+        "locale": "unspecified, assume global",
+        "capital": "Very low",
+        "traction": "Zero — no customers, no revenue, no prototype",
+        "languages": "English",
+        "rounds": 3,
+        "name": None,
+    }
+
+    i = 0
+    while i < len(args):
+        flag = args[i]
+        if flag == "--rounds" and i + 1 < len(args):
+            config["rounds"] = int(args[i + 1])
+            i += 2
+        elif flag == "--team-size" and i + 1 < len(args):
+            config["team_size"] = int(args[i + 1])
+            i += 2
+        elif flag == "--experience" and i + 1 < len(args):
+            config["experience"] = args[i + 1]
+            i += 2
+        elif flag == "--network" and i + 1 < len(args):
+            config["network"] = args[i + 1]
+            i += 2
+        elif flag == "--availability" and i + 1 < len(args):
+            config["availability"] = args[i + 1]
+            i += 2
+        elif flag == "--locale" and i + 1 < len(args):
+            config["locale"] = args[i + 1]
+            i += 2
+        elif flag == "--capital" and i + 1 < len(args):
+            config["capital"] = args[i + 1]
+            i += 2
+        elif flag == "--traction" and i + 1 < len(args):
+            config["traction"] = args[i + 1]
+            i += 2
+        elif flag == "--languages" and i + 1 < len(args):
+            config["languages"] = args[i + 1]
+            i += 2
+        elif flag == "--name" and i + 1 < len(args):
+            config["name"] = args[i + 1]
+            i += 2
+        else:
+            print(f"Unknown flag: {flag}")
+            i += 1
+
+    return config
+
+
+def run_generate(config: dict[str, Any]) -> None:
+    """Run the generate pipeline with nested inner/outer feedback loops."""
+    from src.pipeline import _compute_weighted_score, _check_reject_signals, _compute_tags, StartupEvalPipeline
+    from src.db import init_db, create_batch
+
+    rounds = config.pop("rounds")
+    given_name = config.pop("name")
+
+    # Build founder constraints from remaining config
+    constraints: dict[str, Any] = {}
+    for key in ["team_size", "experience", "network", "availability", "locale", "capital", "traction", "languages"]:
+        val = config.get(key)
+        if val is not None:
+            constraints[key] = val
+
+    batch_id = _next_generated_id()
+    all_results: dict[str, dict[int, Any]] = {}
+    score_progression: list[tuple[str, float, str]] = []
+
+    # Outer loop feedback state
+    prior_evaluation: dict[str, Any] | None = None
+    prior_score: dict[str, Any] | None = None
+
+    pipeline_start = time.time()
+
+    def _elapsed() -> str:
+        e = int(time.time() - pipeline_start)
+        mins, secs = divmod(e, 60)
+        return f"{mins}m {secs}s"
+
+    print(f"\n{'#'*60}")
+    print(f"  EvalBot — Generate Mode")
+    print(f"  Batch: {batch_id} | Rounds: {rounds}")
+    print(f"  Started: {datetime.now().strftime('%H:%M:%S')}")
+    print(f"{'#'*60}")
+    print(f"\n  Constraints:")
+    for k, v in constraints.items():
+        print(f"    {k.replace('_', ' ').title()}: {v}")
+    print()
+
+    for round_num in range(1, rounds + 1):
+        print(f"\n{'='*60}")
+        print(f"  OUTER ROUND {round_num}/{rounds}  [{_elapsed()} elapsed]")
+        print(f"{'='*60}")
+
+        # --- Inner loop: Agent 0 → Agent 1 → Agent 2 (max 5 attempts) ---
+        best_attempt: dict[str, Any] | None = None
+        screening_feedback: dict[str, Any] | None = None
+
+        for attempt in range(1, INNER_LOOP_MAX_ATTEMPTS + 1):
+            print(f"\n  ┌─ Inner Attempt {attempt}/{INNER_LOOP_MAX_ATTEMPTS}  [{_elapsed()}]")
+
+            # Run Agent 0
+            a0_output, a0_usage = _run_single_agent(
+                agent_number=0,
+                submission_text="",
+                agent0_task_kwargs={
+                    "constraints": constraints,
+                    "screening_feedback": screening_feedback,
+                    "prior_evaluation": prior_evaluation,
+                    "prior_score": prior_score,
+                    "round_number": round_num,
+                    "attempt_number": attempt,
+                },
+            )
+            startup_name = a0_output.get("startup_name", "Generated Startup")
+            submission_text = a0_output.get("submission_text", "")
+            print(f"    → Idea: {startup_name}")
+            strategy = a0_output.get("strategy_notes", "")
+            if strategy:
+                print(f"    → Strategy: {strategy[:150]}...")
+
+            # Run Agent 1 (Intake Parser)
+            a1_output, a1_usage = _run_single_agent(
+                agent_number=1,
+                submission_text=submission_text,
+            )
+
+            # Run Agent 2 (Venture Analyst)
+            a2_output, a2_usage = _run_single_agent(
+                agent_number=2,
+                submission_text=submission_text,
+                prior_context={1: a1_output},
+            )
+
+            # Compute weighted score
+            weighted_score, score_tier = _compute_weighted_score(a2_output)
+            a2_output["weighted_total_score"] = weighted_score
+            a2_output["score_tier"] = score_tier
+            reject_signals = _check_reject_signals(a2_output)
+            a2_output["reject_signals"] = reject_signals
+
+            print(f"    → Score: {weighted_score}/80 ({score_tier}) | Verdict: {a2_output.get('verdict', 'N/A')}")
+            if reject_signals:
+                print(f"    → Reject signals: {', '.join(reject_signals)}")
+
+            # Track best attempt
+            current = {
+                "score": weighted_score,
+                "a0": a0_output,
+                "a1": a1_output,
+                "a2": a2_output,
+                "submission": submission_text,
+                "attempt": attempt,
+                "usage": {0: a0_usage, 1: a1_usage, 2: a2_usage},
+            }
+            if best_attempt is None or weighted_score > best_attempt["score"]:
+                best_attempt = current
+
+            if weighted_score >= SCREENING_THRESHOLD:
+                print(f"  └─ PASSED screening ({weighted_score} >= {SCREENING_THRESHOLD})")
+                break
+            else:
+                print(f"  └─ FAILED screening ({weighted_score} < {SCREENING_THRESHOLD})")
+                screening_feedback = a2_output
+                if attempt < INNER_LOOP_MAX_ATTEMPTS:
+                    print(f"     Retrying with feedback...")
+
+        if best_attempt is None:
+            print("  ERROR: No attempts completed. Skipping round.")
+            continue
+
+        if best_attempt["score"] < SCREENING_THRESHOLD:
+            print(f"\n  Inner loop exhausted — using best attempt (score {best_attempt['score']}/80)")
+
+        # --- Continue with Agents 3-6 using the best/passing attempt ---
+        startup_name = best_attempt["a0"].get("startup_name", "Generated Startup")
+        submission_text = best_attempt["submission"]
+        used_attempt = best_attempt["attempt"]
+
+        print(f"\n  Full evaluation for: {startup_name}")
+        print(f"  (attempt {used_attempt}, score {best_attempt['score']}/80)  [{_elapsed()}]\n")
+
+        # Build prior context for agents 3-6
+        prior_context: dict[int, Any] = {
+            1: best_attempt["a1"],
+            2: best_attempt["a2"],
+        }
+        agent_usage = dict(best_attempt["usage"])
+
+        for agent_num in range(3, 7):
+            a_output, a_usage = _run_single_agent(
+                agent_number=agent_num,
+                submission_text=submission_text,
+                prior_context=prior_context,
+            )
+            prior_context[agent_num] = a_output
+            agent_usage[agent_num] = a_usage
+
+        # Assemble results
+        round_result: dict[int | str, Any] = {
+            0: best_attempt["a0"],
+            1: best_attempt["a1"],
+            2: best_attempt["a2"],
+        }
+        for agent_num in range(3, 7):
+            round_result[agent_num] = prior_context[agent_num]
+
+        # Compute tags
+        tags = _compute_tags(round_result)
+        round_result["_tags"] = tags
+        round_result["_usage"] = agent_usage
+        round_result["_gen_meta"] = {
+            "round": round_num,
+            "attempt": used_attempt,
+        }
+
+        # Determine name for this round's results
+        base_name = given_name or startup_name
+        round_key = f"{_sanitize_filename(base_name)}_r{round_num}"
+        all_results[round_key] = round_result
+
+        weighted = best_attempt["score"]
+        tier = best_attempt["a2"].get("score_tier", "N/A")
+        verdict = best_attempt["a2"].get("verdict", "N/A")
+        score_progression.append((round_key, weighted, tier))
+
+        print(f"\n  {'─'*50}")
+        print(f"  Round {round_num} complete  [{_elapsed()}]")
+        print(f"  {startup_name}: {weighted}/80 ({tier}) — {verdict}")
+        print(f"  {'─'*50}")
+
+        # Extract Agent 6 feedback for next outer round
+        prior_evaluation = prior_context.get(6)
+        prior_score = best_attempt["a2"]
+
+    # --- Agent 7: Rank all generated startups ---
+    ranking_output = None
+    ranking_usage = None
+    if len(all_results) > 1:
+        print(f"\n{'='*60}")
+        print(f"  AGENT 7 — Ranking {len(all_results)} startups  [{_elapsed()}]")
+        print(f"{'='*60}\n")
+
+        from crewai import Crew as _Crew
+        from src.agents import create_agent as _create_agent
+        from src.config import get_model_for_agent as _get_model
+        from src.tasks import create_ranking_task
+
+        # Build batch_data in the format create_ranking_task expects
+        batch_data = []
+        for name, outputs in all_results.items():
+            agent_outputs = {k: v for k, v in outputs.items() if isinstance(k, int)}
+            batch_data.append({"startup_name": name, "outputs": agent_outputs})
+
+        model_name_7 = _get_model(7)
+        agent7 = _create_agent(7)
+        ranking_task = create_ranking_task(agent7, batch_data)
+        crew7 = _Crew(agents=[agent7], tasks=[ranking_task], verbose=False)
+
+        stop_event = threading.Event()
+        agent_start = time.time()
+        timer_thread = threading.Thread(
+            target=_show_agent_timer,
+            args=(7, model_name_7, stop_event),
+            daemon=True,
+        )
+        timer_thread.start()
+
+        try:
+            ranking_result = crew7.kickoff()
+        finally:
+            stop_event.set()
+            timer_thread.join(timeout=2)
+
+        duration = time.time() - agent_start
+        mins, secs = divmod(int(duration), 60)
+        print(f"    ✓ Agent 7 (Ranking Committee) completed in {mins}m {secs}s")
+
+        from src.models import Agent7Output
+        if ranking_result.pydantic:
+            ranking_output = ranking_result.pydantic.model_dump(mode="json")
+        else:
+            try:
+                parsed = Agent7Output.model_validate_json(ranking_result.raw)
+                ranking_output = parsed.model_dump(mode="json")
+            except Exception:
+                ranking_output = {"raw_output": ranking_result.raw}
+
+        usage_7 = ranking_result.token_usage
+        ranking_usage = {
+            7: {
+                "model": model_name_7,
+                "prompt_tokens": getattr(usage_7, "prompt_tokens", 0),
+                "completion_tokens": getattr(usage_7, "completion_tokens", 0),
+                "total_tokens": getattr(usage_7, "total_tokens", 0),
+            }
+        }
+
+        # Print ranking results
+        if isinstance(ranking_output, dict) and "ranked_startups" in ranking_output:
+            print(f"\n  Ranking:")
+            for entry in ranking_output["ranked_startups"]:
+                print(f"    #{entry.get('rank', '?')}  {entry.get('name', '?')} — {entry.get('score', '?')} ({entry.get('label', '?')})")
+                print(f"        {entry.get('summary', '')}")
+
+    # --- Final summary ---
+    total_elapsed = int(time.time() - pipeline_start)
+    mins, secs = divmod(total_elapsed, 60)
+
+    print(f"\n\n{'#'*60}")
+    print(f"  SCORE PROGRESSION")
+    print(f"{'#'*60}\n")
+    for name, score, tier in score_progression:
+        print(f"  {name}: {score}/80 ({tier})")
+
+    print(f"\n  Total time: {mins}m {secs}s")
+
+    out_dir = export_results(batch_id, all_results, ranking_output, ranking_usage)
+    print(f"\n  Results saved to: {out_dir}")
+
+
 def main() -> None:
     _ensure_supported_python()
     from src.pipeline import run_batch, run_single
@@ -512,6 +969,10 @@ def main() -> None:
 
         out_dir = export_results(batch_id, {name: result})
         print(f"\nResults saved to: {out_dir}")
+
+    elif mode == "generate":
+        gen_config = _parse_generate_args(args[1:])
+        run_generate(gen_config)
 
     elif mode == "batch":
         if len(args) < 2:
@@ -576,6 +1037,19 @@ def main() -> None:
         print("  python main.py                     # Process CourseDocs")
         print("  python main.py single <file>       # Process one submission")
         print("  python main.py batch <directory>   # Process multiple + rank")
+        print("  python main.py generate [options]  # Generate & evaluate startup ideas")
+        print("")
+        print("Generate options:")
+        print("  --rounds N          Number of outer loop rounds (default: 3)")
+        print("  --name NAME         Base name for output folders")
+        print("  --team-size N       Team size (default: 1)")
+        print("  --experience TEXT   Founder experience (default: none)")
+        print("  --network TEXT      Founder network (default: none)")
+        print("  --availability PCT  Availability (default: 100%)")
+        print("  --locale TEXT       Location (default: Barcelona, Spain)")
+        print("  --capital TEXT      Capital level (default: Very low)")
+        print("  --traction TEXT     Current traction (default: zero)")
+        print("  --languages TEXT    Languages spoken (default: English)")
         sys.exit(1)
 
 

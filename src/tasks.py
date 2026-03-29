@@ -7,7 +7,7 @@ from typing import Any
 
 from crewai import Agent, Task
 
-from .models import AGENT_OUTPUT_MODELS
+from .models import AGENT_OUTPUT_MODELS, Agent0Output
 
 # ---------------------------------------------------------------------------
 # Expected-output descriptions for each agent
@@ -90,6 +90,103 @@ def create_task(
         expected_output=_EXPECTED_OUTPUT[agent_number],
         agent=agent,
         output_pydantic=output_model,
+    )
+
+
+def create_agent0_task(
+    agent: Agent,
+    constraints: dict[str, Any],
+    screening_feedback: dict[str, Any] | None = None,
+    prior_evaluation: dict[str, Any] | None = None,
+    prior_score: dict[str, Any] | None = None,
+    round_number: int = 1,
+    attempt_number: int = 1,
+) -> Task:
+    """Create a task for Agent 0 — Startup Idea Generator.
+
+    Args:
+        agent: The CrewAI Agent instance for Agent 0.
+        constraints: Founder constraints (team_size, experience, etc.).
+        screening_feedback: Agent 2 output from a failed inner-loop attempt.
+        prior_evaluation: Agent 6 output from the previous outer-loop round.
+        prior_score: Agent 2 output from the previous outer-loop round.
+        round_number: Current outer-loop round (1-based).
+        attempt_number: Current inner-loop attempt (1-based).
+    """
+    parts: list[str] = []
+
+    parts.append(
+        f"Generate a startup idea (Round {round_number}, Attempt {attempt_number}).\n"
+    )
+
+    # Founder constraints
+    parts.append("FOUNDER CONSTRAINTS:\n")
+    for key, value in constraints.items():
+        label = key.replace("_", " ").title()
+        parts.append(f"- {label}: {value}")
+    parts.append("")
+
+    # Inner loop feedback (screening rejection)
+    if screening_feedback and attempt_number > 1:
+        parts.append("SCREENING FEEDBACK — your previous idea scored below threshold:\n")
+        parts.append(f"- Weighted Score: {screening_feedback.get('weighted_total_score', 'N/A')}/80")
+        parts.append(f"- Score Tier: {screening_feedback.get('score_tier', 'N/A')}")
+        parts.append(f"- Verdict: {screening_feedback.get('verdict', 'N/A')}")
+        parts.append(f"- Explanation: {screening_feedback.get('explanation', 'N/A')}")
+
+        # Include individual dimension scores for targeted improvement
+        score_fields = [
+            ("score_problem_severity", "Problem Severity"),
+            ("score_market_size", "Market Size"),
+            ("score_differentiation", "Differentiation"),
+            ("score_customer_clarity", "Customer Clarity"),
+            ("score_founder_insight", "Founder Insight"),
+            ("score_business_model", "Business Model"),
+            ("score_moat_potential", "Moat Potential"),
+            ("score_venture_potential", "Venture Potential"),
+            ("score_competition_difficulty", "Competition Difficulty"),
+            ("score_execution_feasibility", "Execution Feasibility"),
+        ]
+        parts.append("\nDimension Scores:")
+        for field, label in score_fields:
+            parts.append(f"  - {label}: {screening_feedback.get(field, 'N/A')}/10")
+        parts.append("\nGenerate a DIFFERENT idea that addresses the weaknesses above.\n")
+
+    # Outer loop feedback (prior round evaluation)
+    if prior_evaluation and round_number > 1:
+        parts.append("PRIOR ROUND EVALUATION (from full pipeline):\n")
+        if prior_score:
+            parts.append(f"Previous Weighted Score: {prior_score.get('weighted_total_score', 'N/A')}/80")
+            parts.append(f"Previous Verdict: {prior_score.get('verdict', 'N/A')}\n")
+        parts.append(f"Recommendation: {prior_evaluation.get('recommendation', 'N/A')}")
+        parts.append(f"Best Customer Segment: {prior_evaluation.get('customer_segment', 'N/A')}")
+        parts.append(f"Best Wedge Strategy: {prior_evaluation.get('wedge', 'N/A')}")
+
+        remove = prior_evaluation.get("remove", [])
+        if remove:
+            parts.append(f"Stop Doing: {', '.join(str(r) for r in remove)}")
+
+        emphasize = prior_evaluation.get("emphasize", [])
+        if emphasize:
+            parts.append(f"Start Emphasizing: {', '.join(str(e) for e in emphasize)}")
+
+        pivots = prior_evaluation.get("pivots", [])
+        if pivots:
+            parts.append("Suggested Pivots:")
+            for i, p in enumerate(pivots, 1):
+                parts.append(f"  {i}. {p}")
+
+        mistake = prior_evaluation.get("mistake_to_avoid")
+        if mistake:
+            parts.append(f"Mistake to Avoid: {mistake}")
+
+        parts.append("\nUse this feedback to generate a FUNDAMENTALLY IMPROVED idea.\n")
+
+    return Task(
+        description="\n".join(parts),
+        expected_output="A startup idea with name, description, full submission text, and strategy notes in JSON matching the Agent0Output schema.",
+        agent=agent,
+        output_pydantic=Agent0Output,
     )
 
 

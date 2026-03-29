@@ -12,6 +12,13 @@ from pydantic import BaseModel, Field
 # Feedback mixin — agents 2-6 can request a re-run from an earlier agent
 # ---------------------------------------------------------------------------
 
+class Agent0Output(BaseModel):
+    startup_name: str = Field(description="Name of the startup")
+    one_line_description: str = Field(description="One-line description of the startup")
+    submission_text: str = Field(description="Full generated startup submission")
+    strategy_notes: str = Field(default="", description="Internal reasoning on why this should score well")
+
+
 class FeedbackMixin(BaseModel):
     rerun_from_agent: Optional[int] = Field(
         default=None,
@@ -234,6 +241,7 @@ class Agent7Output(BaseModel):
 # ---------------------------------------------------------------------------
 
 AGENT_OUTPUT_MODELS: dict[int, type[BaseModel]] = {
+    0: Agent0Output,
     1: Agent1Output,
     2: Agent2Output,
     3: Agent3Output,
