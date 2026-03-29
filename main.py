@@ -524,7 +524,7 @@ def _run_single_agent(
     For Agent 0, pass agent0_task_kwargs with the arguments for create_agent0_task().
     For Agents 1-6, uses the standard create_task().
     """
-    from crewai import Crew
+    from crewai import Crew, Task
 
     from src.agents import create_agent
     from src.config import get_model_for_agent
@@ -557,8 +557,24 @@ def _run_single_agent(
     )
     timer_thread.start()
 
+    result = None
     try:
         result = crew.kickoff()
+    except Exception as exc:
+        # Some providers (e.g. MiniMax) trigger "multiple tool calls" errors
+        # with structured output. Retry without Pydantic output and parse raw.
+        exc_msg = str(exc)
+        if "multiple tool calls" in exc_msg or "InstructorRetryException" in type(exc).__name__:
+            print(f"\n    ⚠ Structured output failed for Agent {agent_number}, retrying with raw output...")
+            task_fallback = Task(
+                description=task.description,
+                expected_output=task.expected_output,
+                agent=agent,
+            )
+            crew_fallback = Crew(agents=[agent], tasks=[task_fallback], verbose=False)
+            result = crew_fallback.kickoff()
+        else:
+            raise
     finally:
         stop_event.set()
         timer_thread.join(timeout=2)
@@ -573,11 +589,23 @@ def _run_single_agent(
     if result.pydantic:
         output_dict = result.pydantic.model_dump(mode="json")
     else:
+        raw = result.raw
+        # Try to extract JSON from the raw text (may be wrapped in markdown)
+        import re
+        json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', raw, re.DOTALL)
+        if json_match:
+            raw = json_match.group(1)
         try:
-            parsed = output_model.model_validate_json(result.raw)
+            parsed = output_model.model_validate_json(raw)
             output_dict = parsed.model_dump(mode="json")
         except Exception:
-            output_dict = {"raw_output": result.raw}
+            try:
+                # Try parsing as plain JSON dict
+                raw_dict = json.loads(raw)
+                parsed = output_model.model_validate(raw_dict)
+                output_dict = parsed.model_dump(mode="json")
+            except Exception:
+                output_dict = {"raw_output": result.raw}
 
     # Token usage
     usage = result.token_usage
@@ -602,6 +630,7 @@ def _parse_generate_args(args: list[str]) -> dict[str, Any]:
         "capital": "Very low",
         "traction": "Zero — no customers, no revenue, no prototype",
         "languages": "English",
+        "industry": "Unspecified",
         "rounds": 3,
         "name": None,
     }
@@ -636,6 +665,9 @@ def _parse_generate_args(args: list[str]) -> dict[str, Any]:
         elif flag == "--languages" and i + 1 < len(args):
             config["languages"] = args[i + 1]
             i += 2
+        elif flag == "--industry" and i + 1 < len(args):
+            config["industry"] = args[i + 1]
+            i += 2
         elif flag == "--name" and i + 1 < len(args):
             config["name"] = args[i + 1]
             i += 2
@@ -650,13 +682,14 @@ def run_generate(config: dict[str, Any]) -> None:
     """Run the generate pipeline with nested inner/outer feedback loops."""
     from src.pipeline import _compute_weighted_score, _check_reject_signals, _compute_tags, StartupEvalPipeline
     from src.db import init_db, create_batch
+    from src.models import Recommendation, Verdict
 
     rounds = config.pop("rounds")
     given_name = config.pop("name")
 
     # Build founder constraints from remaining config
     constraints: dict[str, Any] = {}
-    for key in ["team_size", "experience", "network", "availability", "locale", "capital", "traction", "languages"]:
+    for key in ["team_size", "experience", "network", "availability", "locale", "capital", "traction", "languages", "industry"]:
         val = config.get(key)
         if val is not None:
             constraints[key] = val
@@ -668,6 +701,7 @@ def run_generate(config: dict[str, Any]) -> None:
     # Outer loop feedback state
     prior_evaluation: dict[str, Any] | None = None
     prior_score: dict[str, Any] | None = None
+    non_strong_positive_streak = 0
 
     pipeline_start = time.time()
 
@@ -698,6 +732,11 @@ def run_generate(config: dict[str, Any]) -> None:
         for attempt in range(1, INNER_LOOP_MAX_ATTEMPTS + 1):
             print(f"\n  ┌─ Inner Attempt {attempt}/{INNER_LOOP_MAX_ATTEMPTS}  [{_elapsed()}]")
 
+            # If the prior two outer rounds were not strongly positive, force exploration.
+            force_completely_new_idea = non_strong_positive_streak >= 2 and round_num > 1
+            if force_completely_new_idea and attempt == 1:
+                print("    → Forced restart mode: generating a completely new direction")
+
             # Run Agent 0
             a0_output, a0_usage = _run_single_agent(
                 agent_number=0,
@@ -709,6 +748,7 @@ def run_generate(config: dict[str, Any]) -> None:
                     "prior_score": prior_score,
                     "round_number": round_num,
                     "attempt_number": attempt,
+                    "force_completely_new_idea": force_completely_new_idea,
                 },
             )
             startup_name = a0_output.get("startup_name", "Generated Startup")
@@ -811,6 +851,7 @@ def run_generate(config: dict[str, Any]) -> None:
         round_result["_gen_meta"] = {
             "round": round_num,
             "attempt": used_attempt,
+            "forced_new_idea": force_completely_new_idea,
         }
 
         # Determine name for this round's results
@@ -831,6 +872,18 @@ def run_generate(config: dict[str, Any]) -> None:
         # Extract Agent 6 feedback for next outer round
         prior_evaluation = prior_context.get(6)
         prior_score = best_attempt["a2"]
+
+        # Strong-positive round resets streak; everything else increments it.
+        verdict = str(prior_score.get("verdict", ""))
+        recommendation = str((prior_evaluation or {}).get("recommendation", ""))
+        is_strong_positive = (
+            verdict == Verdict.TOP_VC_CANDIDATE.value
+            and recommendation == Recommendation.CONTINUE.value
+        )
+        if is_strong_positive:
+            non_strong_positive_streak = 0
+        else:
+            non_strong_positive_streak += 1
 
     # --- Agent 7: Rank all generated startups ---
     ranking_output = None
@@ -1050,6 +1103,7 @@ def main() -> None:
         print("  --capital TEXT      Capital level (default: Very low)")
         print("  --traction TEXT     Current traction (default: zero)")
         print("  --languages TEXT    Languages spoken (default: English)")
+        print("  --industry TEXT     Target industry (default: Unspecified)")
         sys.exit(1)
 
 
