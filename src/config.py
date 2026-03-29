@@ -45,14 +45,14 @@ RERUN_MODEL: str | None = None
 # Per-agent model overrides. Set to a model string to override DEFAULT_MODEL.
 # None means "use DEFAULT_MODEL".
 AGENT_MODELS: dict[int, str | None] = {
-    0: "gpt-4.1",                                # Startup Idea Generator (generate mode only)
-    1: "gpt-4.1-nano",                           # Intake Parser
-    2: "gpt-4.1",                                # Venture Analyst
-    3: "gpt-4.1-mini",                           # Market & Competition Analyst
-    4: "gpt-4.1-mini",                           # Product & Positioning Analyst
-    5: "gpt-4.1-mini",                           # Founder Fit Analyst
-    6: "gpt-4.1",                                # Recommendation / Pivot Agent
-    7: "gpt-4.1-mini",                           # Ranking Committee Agent
+    0: "minimax/MiniMax-M2.5",                   # Startup Idea Generator (generate mode only)
+    1: "minimax/MiniMax-M2.5",                   # Intake Parser
+    2: "minimax/MiniMax-M2.5",                   # Venture Analyst
+    3: "minimax/MiniMax-M2.5",                   # Market & Competition Analyst
+    4: "minimax/MiniMax-M2.5",                   # Product & Positioning Analyst
+    5: "minimax/MiniMax-M2.5",                   # Founder Fit Analyst
+    6: "minimax/MiniMax-M2.5",                   # Recommendation / Pivot Agent
+    7: "minimax/MiniMax-M2.5",                   # Ranking Committee Agent
 }
 
 

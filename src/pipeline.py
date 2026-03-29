@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, get_origin
 
-from crewai import Crew
+from crewai import Crew, Task
 
 from .agents import create_agent
 from .config import CRITICAL_FIELDS, MAX_ITERATIONS, QUALITY_GATE_THRESHOLD, get_model_for_agent
@@ -25,6 +26,127 @@ from .db import (
 )
 from .models import AGENT_OUTPUT_MODELS, FeedbackMixin
 from .tasks import create_ranking_task, create_task
+
+
+def _is_instructor_multi_tool_error(exc: Exception) -> bool:
+    """Detect known Instructor/CrewAI structured-output failures from some models."""
+    msg = str(exc).lower()
+    exc_type = type(exc).__name__.lower()
+    return (
+        "multiple tool calls" in msg
+        or "instructor does not support multiple tool calls" in msg
+        or "instructorretryexception" in exc_type
+    )
+
+
+def _supports_structured_output(model_name: str) -> bool:
+    """Return whether output_pydantic should be used with this provider/model."""
+    return not model_name.lower().startswith("minimax/")
+
+
+def _extract_json_segment(text: str) -> str | None:
+    """Extract the first balanced JSON object or array from text."""
+    starts = [idx for idx in (text.find("{"), text.find("[")) if idx != -1]
+    if not starts:
+        return None
+    start = min(starts)
+
+    stack: list[str] = []
+    in_string = False
+    escaped = False
+
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+
+        if ch == '"':
+            in_string = True
+            continue
+        if ch in "{[":
+            stack.append(ch)
+            continue
+        if ch in "}]":
+            if not stack:
+                return None
+            opener = stack.pop()
+            if (opener == "{" and ch != "}") or (opener == "[" and ch != "]"):
+                return None
+            if not stack:
+                return text[start : i + 1]
+
+    return None
+
+
+def _parse_output_to_dict(output_model: Any, raw: str) -> dict[str, Any] | None:
+    """Parse LLM raw output into expected dict, handling fenced JSON and extra prose."""
+    def _normalize_for_model(data: dict[str, Any]) -> dict[str, Any]:
+        normalized = dict(data)
+        for field_name, field_info in output_model.model_fields.items():
+            if field_name not in normalized:
+                continue
+            value = normalized[field_name]
+            if value is None:
+                continue
+
+            is_list_field = get_origin(field_info.annotation) is list
+            if is_list_field:
+                if isinstance(value, str):
+                    lines = [
+                        line.strip().lstrip("-*•0123456789. ").strip()
+                        for line in value.replace("\r", "").split("\n")
+                    ]
+                    parts = [p for p in lines if p]
+                    if len(parts) <= 1 and "," in value:
+                        parts = [p.strip() for p in value.split(",") if p.strip()]
+                    normalized[field_name] = parts if parts else [value.strip()]
+                elif isinstance(value, tuple | set):
+                    normalized[field_name] = list(value)
+
+        return normalized
+
+    candidates: list[str] = [raw.strip()]
+
+    for block in re.findall(r"```(?:json)?\s*([\s\S]*?)\s*```", raw, flags=re.IGNORECASE):
+        stripped = block.strip()
+        if stripped:
+            candidates.append(stripped)
+
+    segment = _extract_json_segment(raw)
+    if segment:
+        candidates.append(segment.strip())
+
+    seen: set[str] = set()
+    unique_candidates: list[str] = []
+    for candidate in candidates:
+        if candidate and candidate not in seen:
+            seen.add(candidate)
+            unique_candidates.append(candidate)
+
+    for candidate in unique_candidates:
+        try:
+            parsed = output_model.model_validate_json(candidate)
+            return parsed.model_dump(mode="json")
+        except Exception:
+            pass
+
+        try:
+            loaded = json.loads(candidate)
+            if isinstance(loaded, list) and loaded and isinstance(loaded[0], dict):
+                loaded = loaded[0]
+            if isinstance(loaded, dict):
+                parsed = output_model.model_validate(_normalize_for_model(loaded))
+                return parsed.model_dump(mode="json")
+        except Exception:
+            continue
+
+    return None
 
 
 def _compute_weighted_score(output_dict: dict) -> tuple[float, str]:
@@ -203,6 +325,13 @@ class StartupEvalPipeline:
                 feedback_reason=feedback_reason,
             )
 
+            if not _supports_structured_output(model_name):
+                task = Task(
+                    description=task.description,
+                    expected_output=task.expected_output,
+                    agent=agent,
+                )
+
             # Run single-agent crew with live counter
             crew = Crew(agents=[agent], tasks=[task], verbose=True)
             print(f"  ⏱ Agent {agent_num} starting at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -218,7 +347,23 @@ class StartupEvalPipeline:
             counter_thread.start()
             
             try:
-                result = crew.kickoff()
+                try:
+                    result = crew.kickoff()
+                except Exception as exc:
+                    if _is_instructor_multi_tool_error(exc):
+                        print(
+                            f"\n  ⚠ Structured output failed for Agent {agent_num}; "
+                            "retrying with raw output..."
+                        )
+                        task_fallback = Task(
+                            description=task.description,
+                            expected_output=task.expected_output,
+                            agent=agent,
+                        )
+                        crew_fallback = Crew(agents=[agent], tasks=[task_fallback], verbose=True)
+                        result = crew_fallback.kickoff()
+                    else:
+                        raise
             finally:
                 stop_event.set()
                 counter_thread.join(timeout=2)
@@ -244,9 +389,10 @@ class StartupEvalPipeline:
                 pydantic_output = result.pydantic
             else:
                 # Fallback: try to parse from raw text
-                try:
-                    pydantic_output = output_model.model_validate_json(result.raw)
-                except Exception:
+                parsed_dict = _parse_output_to_dict(output_model, result.raw)
+                if parsed_dict is not None:
+                    pydantic_output = output_model.model_validate(parsed_dict)
+                else:
                     print(f"  WARNING: Could not parse Agent {agent_num} output into Pydantic model")
                     pydantic_output = None
 
@@ -416,6 +562,12 @@ def run_batch(
     model_name_7 = get_model_for_agent(7)
     agent = create_agent(7)
     task = create_ranking_task(agent, batch_data)
+    if not _supports_structured_output(model_name_7):
+        task = Task(
+            description=task.description,
+            expected_output=task.expected_output,
+            agent=agent,
+        )
     crew = Crew(agents=[agent], tasks=[task], verbose=True)
     
     print(f"  ⏱ Agent 7 starting at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -431,7 +583,20 @@ def run_batch(
     counter_thread.start()
     
     try:
-        ranking_result = crew.kickoff()
+        try:
+            ranking_result = crew.kickoff()
+        except Exception as exc:
+            if _is_instructor_multi_tool_error(exc):
+                print("\n  ⚠ Structured ranking output failed; retrying with raw output...")
+                ranking_task_fallback = Task(
+                    description=task.description,
+                    expected_output=task.expected_output,
+                    agent=agent,
+                )
+                crew_fallback = Crew(agents=[agent], tasks=[ranking_task_fallback], verbose=True)
+                ranking_result = crew_fallback.kickoff()
+            else:
+                raise
     finally:
         stop_event.set()
         counter_thread.join(timeout=2)
@@ -459,8 +624,11 @@ def run_batch(
         try:
             from .models import Agent7Output
 
-            parsed = Agent7Output.model_validate_json(ranking_result.raw)
-            ranking_output = parsed.model_dump(mode="json")
+            parsed_dict = _parse_output_to_dict(Agent7Output, ranking_result.raw)
+            if parsed_dict is not None:
+                ranking_output = parsed_dict
+            else:
+                ranking_output = {"raw_output": ranking_result.raw}
         except Exception:
             ranking_output = {"raw_output": ranking_result.raw}
 

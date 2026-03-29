@@ -35,6 +35,19 @@ _FEEDBACK_INSTRUCTION = (
 )
 
 
+def _json_only_instruction(agent_number: int) -> str:
+    """Return a strict JSON-only output instruction tailored to the agent schema."""
+    model = AGENT_OUTPUT_MODELS[agent_number]
+    fields = ", ".join(model.model_fields.keys())
+    return (
+        "\n\nOUTPUT FORMAT REQUIREMENT:\n"
+        "Return ONLY one valid JSON object.\n"
+        "Do NOT include markdown, headings, tables, code fences, or explanatory prose.\n"
+        f"Required top-level keys: {fields}.\n"
+        "Use exact enum values where applicable.\n"
+    )
+
+
 def _build_description(
     agent_number: int,
     submission_text: str,
@@ -83,6 +96,7 @@ def create_task(
 ) -> Task:
     """Create a CrewAI Task for the given agent with structured Pydantic output."""
     description = _build_description(agent_number, submission_text, prior_context, feedback_reason)
+    description += _json_only_instruction(agent_number)
     output_model = AGENT_OUTPUT_MODELS[agent_number]
 
     return Task(
@@ -195,8 +209,10 @@ def create_agent0_task(
         else:
             parts.append("\nUse this feedback to generate a FUNDAMENTALLY IMPROVED idea.\n")
 
+    description = "\n".join(parts) + _json_only_instruction(0)
+
     return Task(
-        description="\n".join(parts),
+        description=description,
         expected_output="A startup idea with name, description, full submission text, and strategy notes in JSON matching the Agent0Output schema.",
         agent=agent,
         output_pydantic=Agent0Output,
@@ -216,8 +232,10 @@ def create_ranking_task(
         for num in sorted(outputs.keys()):
             parts.append(f"\n--- Agent {num} Output ---\n{json.dumps(outputs[num], indent=2, default=str)}\n")
 
+    description = "\n".join(parts) + _json_only_instruction(7)
+
     return Task(
-        description="\n".join(parts),
+        description=description,
         expected_output=_EXPECTED_OUTPUT[7],
         agent=agent,
         output_pydantic=AGENT_OUTPUT_MODELS[7],

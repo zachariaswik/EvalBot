@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, get_origin
 
 from dotenv import load_dotenv
 
@@ -87,6 +88,138 @@ AGENT_ROLES = {
     7: "Ranking Committee Agent",
 }
 
+
+def _supports_structured_output(model_name: str) -> bool:
+    """Return whether we should use output_pydantic for this model/provider."""
+    return not model_name.lower().startswith("minimax/")
+
+
+def _extract_json_segment(text: str) -> str | None:
+    """Extract the first balanced JSON object or array from text."""
+    starts = [idx for idx in (text.find("{"), text.find("[")) if idx != -1]
+    if not starts:
+        return None
+    start = min(starts)
+
+    stack: list[str] = []
+    in_string = False
+    escaped = False
+
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+
+        if ch == '"':
+            in_string = True
+            continue
+        if ch in "{[":
+            stack.append(ch)
+            continue
+        if ch in "}]":
+            if not stack:
+                return None
+            opener = stack.pop()
+            if (opener == "{" and ch != "}") or (opener == "[" and ch != "]"):
+                return None
+            if not stack:
+                return text[start : i + 1]
+
+    return None
+
+
+def _parse_output_to_dict(output_model: Any, raw: str) -> dict[str, Any] | None:
+    """Parse LLM raw output into the expected dict, handling fenced JSON and extra prose."""
+    def _normalize_for_model(data: dict[str, Any]) -> dict[str, Any]:
+        normalized = dict(data)
+        for field_name, field_info in output_model.model_fields.items():
+            if field_name not in normalized:
+                continue
+            value = normalized[field_name]
+            if value is None:
+                continue
+
+            is_list_field = get_origin(field_info.annotation) is list
+            if is_list_field:
+                if isinstance(value, str):
+                    lines = [
+                        line.strip().lstrip("-*•0123456789. ").strip()
+                        for line in value.replace("\r", "").split("\n")
+                    ]
+                    parts = [p for p in lines if p]
+                    if len(parts) <= 1 and "," in value:
+                        parts = [p.strip() for p in value.split(",") if p.strip()]
+                    normalized[field_name] = parts if parts else [value.strip()]
+                elif isinstance(value, tuple | set):
+                    normalized[field_name] = list(value)
+
+        return normalized
+
+    candidates: list[str] = [raw.strip()]
+
+    for block in re.findall(r"```(?:json)?\s*([\s\S]*?)\s*```", raw, flags=re.IGNORECASE):
+        stripped = block.strip()
+        if stripped:
+            candidates.append(stripped)
+
+    segment = _extract_json_segment(raw)
+    if segment:
+        candidates.append(segment.strip())
+
+    seen: set[str] = set()
+    unique_candidates: list[str] = []
+    for candidate in candidates:
+        if candidate and candidate not in seen:
+            seen.add(candidate)
+            unique_candidates.append(candidate)
+
+    for candidate in unique_candidates:
+        try:
+            parsed = output_model.model_validate_json(candidate)
+            return parsed.model_dump(mode="json")
+        except Exception:
+            pass
+
+        try:
+            loaded = json.loads(candidate)
+            if isinstance(loaded, list) and loaded and isinstance(loaded[0], dict):
+                loaded = loaded[0]
+            if isinstance(loaded, dict):
+                parsed = output_model.model_validate(_normalize_for_model(loaded))
+                return parsed.model_dump(mode="json")
+        except Exception:
+            continue
+
+    return None
+
+
+def _repair_output_to_json(agent: Any, output_model: Any, raw: str) -> dict[str, Any] | None:
+    """Ask the model to convert its own raw output into strict JSON once parsing fails."""
+    from crewai import Crew as _Crew, Task as _Task
+
+    field_names = ", ".join(output_model.model_fields.keys())
+    repair_prompt = (
+        "Convert the following content into exactly one valid JSON object that matches the target schema.\n"
+        "Output ONLY JSON. No markdown, no code fences, no commentary.\n"
+        f"Required top-level keys: {field_names}.\n\n"
+        "CONTENT TO CONVERT:\n"
+        f"{raw}"
+    )
+    repair_task = _Task(
+        description=repair_prompt,
+        expected_output="One valid JSON object only.",
+        agent=agent,
+    )
+    repair_crew = _Crew(agents=[agent], tasks=[repair_task], verbose=False)
+    repair_result = repair_crew.kickoff()
+    return _parse_output_to_dict(output_model, repair_result.raw)
+
 # Pricing per million tokens: {model_prefix: (input_$/M, output_$/M)}
 MODEL_PRICING: dict[str, tuple[float, float]] = {
     "anthropic/claude-haiku-4-5": (1.00, 5.00),
@@ -117,8 +250,10 @@ def _write_batch_summary(
     out_dir: Path,
     individual: dict[str, dict[int, Any]],
     ranking_usage: dict[int, dict] | None = None,
+    execution_metrics: dict[str, Any] | None = None,
+    is_generation: bool = False,
 ) -> None:
-    """Write batch_summary.md with model table and token/cost breakdown."""
+    """Write batch/generation summary with model table and token/cost breakdown."""
     # Aggregate usage across all startups per agent
     aggregated: dict[int, dict] = {}
     for _name, outputs in individual.items():
@@ -148,7 +283,40 @@ def _write_batch_summary(
             }
 
     lines = [f"# Batch Summary — {batch_id}", ""]
-
+    
+    # Execution Summary
+    if execution_metrics:
+        lines.append("## Execution Summary")
+        lines.append("")
+        metrics = execution_metrics
+        lines.append(f"**Outer Rounds**: {metrics.get('outer_rounds', 'N/A')}")
+        lines.append(f"**Startups Generated**: {metrics.get('startup_count', 'N/A')}")
+        lines.append(f"**Ranking**: {'Yes' if metrics.get('has_ranking') else 'No'}")
+        lines.append("")
+        
+        lines.append("### Inner Loop Details")
+        lines.append("")
+        max_inner = metrics.get("max_inner_attempts", "N/A")
+        total_attempts = metrics.get("total_attempts_made", 0)
+        actual_attempts = metrics.get("actual_attempts_per_round", [])
+        
+        if actual_attempts:
+            lines.append(f"**Max Inner Attempts per Round**: {max_inner}")
+            lines.append(f"**Total Inner Attempts Made**: {total_attempts}")
+            lines.append("")
+            lines.append("**Breakdown by Round**:")
+            for idx, attempts in enumerate(actual_attempts, 1):
+                lines.append(f"  - Round {idx}: {attempts} attempt(s)")
+            lines.append("")
+        
+        total_runs = metrics.get("total_agent_runs", 0)
+        lines.append(f"**Total Agent Invocations**: {total_runs}")
+        lines.append(f"  - Inner loop (Agents 0,1,2): {sum(a*3 for a in actual_attempts)} invocations")
+        lines.append(f"  - Full evaluation (Agents 3-6): {len(actual_attempts)*4} invocations")
+        if metrics.get("has_ranking"):
+            lines.append(f"  - Ranking (Agent 7): 1 invocation")
+        lines.append("")
+    
     # Models table
     lines.append("## Models Used")
     lines.append("")
@@ -181,7 +349,7 @@ def _write_batch_summary(
     )
     lines.append("")
 
-    (out_dir / "batch_summary.md").write_text("\n".join(lines), encoding="utf-8")
+    (out_dir / ("generation_summary.md" if is_generation else "batch_summary.md")).write_text("\n".join(lines), encoding="utf-8")
 
 
 def _fmt_list(items: list | str | None, bullet: str = "- ") -> str:
@@ -464,6 +632,8 @@ def export_results(
     individual: dict[str, dict[int, Any]],
     ranking: dict[str, Any] | None = None,
     ranking_usage: dict[int, dict] | None = None,
+    execution_metrics: dict[str, Any] | None = None,
+    is_generation: bool = False,
 ) -> Path:
     """Write pipeline results as JSON files to output/<batch_id>/."""
     out_dir = PROJECT_ROOT / "output" / batch_id
@@ -485,7 +655,7 @@ def export_results(
             encoding="utf-8",
         )
 
-    _write_batch_summary(batch_id, out_dir, individual, ranking_usage)
+    _write_batch_summary(batch_id, out_dir, individual, ranking_usage, execution_metrics, is_generation)
 
     return out_dir
 
@@ -545,6 +715,14 @@ def _run_single_agent(
             prior_context=prior_context,
         )
 
+    # MiniMax can fail with Instructor "multiple tool calls" on structured output.
+    if not _supports_structured_output(model_name):
+        task = Task(
+            description=task.description,
+            expected_output=task.expected_output,
+            agent=agent,
+        )
+
     crew = Crew(agents=[agent], tasks=[task], verbose=False)
 
     # Start live timer
@@ -564,7 +742,12 @@ def _run_single_agent(
         # Some providers (e.g. MiniMax) trigger "multiple tool calls" errors
         # with structured output. Retry without Pydantic output and parse raw.
         exc_msg = str(exc)
-        if "multiple tool calls" in exc_msg or "InstructorRetryException" in type(exc).__name__:
+        exc_msg_l = exc_msg.lower()
+        if (
+            "multiple tool calls" in exc_msg_l
+            or "instructor does not support multiple tool calls" in exc_msg_l
+            or "instructorretryexception" in type(exc).__name__.lower()
+        ):
             print(f"\n    ⚠ Structured output failed for Agent {agent_number}, retrying with raw output...")
             task_fallback = Task(
                 description=task.description,
@@ -589,22 +772,22 @@ def _run_single_agent(
     if result.pydantic:
         output_dict = result.pydantic.model_dump(mode="json")
     else:
-        raw = result.raw
-        # Try to extract JSON from the raw text (may be wrapped in markdown)
-        import re
-        json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', raw, re.DOTALL)
-        if json_match:
-            raw = json_match.group(1)
-        try:
-            parsed = output_model.model_validate_json(raw)
-            output_dict = parsed.model_dump(mode="json")
-        except Exception:
+        parsed_dict = _parse_output_to_dict(output_model, result.raw)
+        if parsed_dict is not None:
+            output_dict = parsed_dict
+        else:
+            print(f"    ⚠ Could not parse Agent {agent_number} output into expected schema; attempting JSON repair...")
+            repaired = None
             try:
-                # Try parsing as plain JSON dict
-                raw_dict = json.loads(raw)
-                parsed = output_model.model_validate(raw_dict)
-                output_dict = parsed.model_dump(mode="json")
+                repaired = _repair_output_to_json(agent, output_model, result.raw)
             except Exception:
+                repaired = None
+
+            if repaired is not None:
+                print(f"    ✓ Agent {agent_number} JSON repaired successfully")
+                output_dict = repaired
+            else:
+                print(f"    ⚠ JSON repair failed for Agent {agent_number}")
                 output_dict = {"raw_output": result.raw}
 
     # Token usage
@@ -698,6 +881,10 @@ def run_generate(config: dict[str, Any]) -> None:
     all_results: dict[str, dict[int, Any]] = {}
     score_progression: list[tuple[str, float, str]] = []
 
+    # Execution metrics tracking
+    actual_attempts_per_round: list[int] = []
+    total_attempts_made = 0
+    
     # Outer loop feedback state
     prior_evaluation: dict[str, Any] | None = None
     prior_score: dict[str, Any] | None = None
@@ -712,8 +899,10 @@ def run_generate(config: dict[str, Any]) -> None:
 
     print(f"\n{'#'*60}")
     print(f"  EvalBot — Generate Mode")
-    print(f"  Batch: {batch_id} | Rounds: {rounds}")
+    print(f"  Batch: {batch_id} | {rounds} Round(s)")
     print(f"  Started: {datetime.now().strftime('%H:%M:%S')}")
+    print(f"  Structure: Each round runs inner loop (Agent 0,1,2) up to {INNER_LOOP_MAX_ATTEMPTS} times,")
+    print(f"             then agents 3-6 on best candidate | Screening threshold: {SCREENING_THRESHOLD}/80")
     print(f"{'#'*60}")
     print(f"\n  Constraints:")
     for k, v in constraints.items():
@@ -722,20 +911,22 @@ def run_generate(config: dict[str, Any]) -> None:
 
     for round_num in range(1, rounds + 1):
         print(f"\n{'='*60}")
-        print(f"  OUTER ROUND {round_num}/{rounds}  [{_elapsed()} elapsed]")
+        streak_info = f"(non-strong-positive streak: {non_strong_positive_streak})" if non_strong_positive_streak > 0 else ""
+        print(f"  OUTER ROUND {round_num}/{rounds} {streak_info}")
+        print(f"  [{_elapsed()} elapsed]")
         print(f"{'='*60}")
 
-        # --- Inner loop: Agent 0 → Agent 1 → Agent 2 (max 5 attempts) ---
+        # --- Inner loop: Agent 0 → Agent 1 → Agent 2 (screening retry loop) ---
         best_attempt: dict[str, Any] | None = None
         screening_feedback: dict[str, Any] | None = None
 
         for attempt in range(1, INNER_LOOP_MAX_ATTEMPTS + 1):
-            print(f"\n  ┌─ Inner Attempt {attempt}/{INNER_LOOP_MAX_ATTEMPTS}  [{_elapsed()}]")
+            print(f"\n  ┌─ INNER LOOP  Attempt {attempt}/{INNER_LOOP_MAX_ATTEMPTS}  [{_elapsed()}]")
 
             # If the prior two outer rounds were not strongly positive, force exploration.
             force_completely_new_idea = non_strong_positive_streak >= 2 and round_num > 1
             if force_completely_new_idea and attempt == 1:
-                print("    → Forced restart mode: generating a completely new direction")
+                print("    ⚠ [FORCED RESTART]  Generating a completely new direction...")
 
             # Run Agent 0
             a0_output, a0_usage = _run_single_agent(
@@ -753,16 +944,17 @@ def run_generate(config: dict[str, Any]) -> None:
             )
             startup_name = a0_output.get("startup_name", "Generated Startup")
             submission_text = a0_output.get("submission_text", "")
-            print(f"    → Idea: {startup_name}")
+            print(f"    • [Agent 0: Generator] {startup_name}")
             strategy = a0_output.get("strategy_notes", "")
             if strategy:
-                print(f"    → Strategy: {strategy[:150]}...")
+                print(f"      Strategy: {strategy[:150]}...")
 
             # Run Agent 1 (Intake Parser)
             a1_output, a1_usage = _run_single_agent(
                 agent_number=1,
                 submission_text=submission_text,
             )
+            print(f"    • [Agent 1: Intake Parser] Processing submission...")
 
             # Run Agent 2 (Venture Analyst)
             a2_output, a2_usage = _run_single_agent(
@@ -770,6 +962,7 @@ def run_generate(config: dict[str, Any]) -> None:
                 submission_text=submission_text,
                 prior_context={1: a1_output},
             )
+            print(f"    • [Agent 2: Venture Analyst] Scoring...")  
 
             # Compute weighted score
             weighted_score, score_tier = _compute_weighted_score(a2_output)
@@ -778,7 +971,7 @@ def run_generate(config: dict[str, Any]) -> None:
             reject_signals = _check_reject_signals(a2_output)
             a2_output["reject_signals"] = reject_signals
 
-            print(f"    → Score: {weighted_score}/80 ({score_tier}) | Verdict: {a2_output.get('verdict', 'N/A')}")
+            print(f"    • Score: {weighted_score}/80 ({score_tier}) | Verdict: {a2_output.get('verdict', 'N/A')}")
             if reject_signals:
                 print(f"    → Reject signals: {', '.join(reject_signals)}")
 
@@ -796,18 +989,22 @@ def run_generate(config: dict[str, Any]) -> None:
                 best_attempt = current
 
             if weighted_score >= SCREENING_THRESHOLD:
-                print(f"  └─ PASSED screening ({weighted_score} >= {SCREENING_THRESHOLD})")
+                print(f"  └─ ✓ PASSED screening ({weighted_score} >= {SCREENING_THRESHOLD})")
                 break
             else:
-                print(f"  └─ FAILED screening ({weighted_score} < {SCREENING_THRESHOLD})")
+                print(f"  └─ ✗ FAILED screening ({weighted_score} < {SCREENING_THRESHOLD})")
                 screening_feedback = a2_output
                 if attempt < INNER_LOOP_MAX_ATTEMPTS:
-                    print(f"     Retrying with feedback...")
+                    print(f"     ↻ Retrying with feedback...")
 
         if best_attempt is None:
             print("  ERROR: No attempts completed. Skipping round.")
             continue
 
+        actual_attempt = best_attempt["attempt"]
+        actual_attempts_per_round.append(actual_attempt)
+        total_attempts_made += actual_attempt
+        
         if best_attempt["score"] < SCREENING_THRESHOLD:
             print(f"\n  Inner loop exhausted — using best attempt (score {best_attempt['score']}/80)")
 
@@ -816,8 +1013,12 @@ def run_generate(config: dict[str, Any]) -> None:
         submission_text = best_attempt["submission"]
         used_attempt = best_attempt["attempt"]
 
-        print(f"\n  Full evaluation for: {startup_name}")
-        print(f"  (attempt {used_attempt}, score {best_attempt['score']}/80)  [{_elapsed()}]\n")
+        print(f"\n  ──────────────────────────────────────")
+        print(f"  Full Evaluation Phase")
+        print(f"  {startup_name}")
+        print(f"  (Inner attempt {used_attempt}/{INNER_LOOP_MAX_ATTEMPTS}, score {best_attempt['score']}/80)")
+        print(f"  Running Agents 3-6...""")
+        print(f"  ──────────────────────────────────────\n")
 
         # Build prior context for agents 3-6
         prior_context: dict[int, Any] = {
@@ -827,11 +1028,13 @@ def run_generate(config: dict[str, Any]) -> None:
         agent_usage = dict(best_attempt["usage"])
 
         for agent_num in range(3, 7):
+            agent_role = AGENT_ROLES.get(agent_num, f"Agent {agent_num}")
             a_output, a_usage = _run_single_agent(
                 agent_number=agent_num,
                 submission_text=submission_text,
                 prior_context=prior_context,
             )
+            print(f"  ✓ [{agent_num}] {agent_role}")
             prior_context[agent_num] = a_output
             agent_usage[agent_num] = a_usage
 
@@ -865,8 +1068,9 @@ def run_generate(config: dict[str, Any]) -> None:
         score_progression.append((round_key, weighted, tier))
 
         print(f"\n  {'─'*50}")
-        print(f"  Round {round_num} complete  [{_elapsed()}]")
-        print(f"  {startup_name}: {weighted}/80 ({tier}) — {verdict}")
+        print(f"  ✓ OUTER ROUND {round_num} COMPLETE  [{_elapsed()}]")
+        print(f"    {startup_name}")
+        print(f"    Score: {weighted}/80 ({tier}) | Verdict: {verdict}")
         print(f"  {'─'*50}")
 
         # Extract Agent 6 feedback for next outer round
@@ -907,6 +1111,16 @@ def run_generate(config: dict[str, Any]) -> None:
         model_name_7 = _get_model(7)
         agent7 = _create_agent(7)
         ranking_task = create_ranking_task(agent7, batch_data)
+
+        if not _supports_structured_output(model_name_7):
+            from crewai import Task as _Task
+
+            ranking_task = _Task(
+                description=ranking_task.description,
+                expected_output=ranking_task.expected_output,
+                agent=agent7,
+            )
+
         crew7 = _Crew(agents=[agent7], tasks=[ranking_task], verbose=False)
 
         stop_event = threading.Event()
@@ -919,7 +1133,28 @@ def run_generate(config: dict[str, Any]) -> None:
         timer_thread.start()
 
         try:
-            ranking_result = crew7.kickoff()
+            try:
+                ranking_result = crew7.kickoff()
+            except Exception as exc:
+                # MiniMax/Instructor may fail structured output on multiple tool calls.
+                exc_msg_l = str(exc).lower()
+                if (
+                    "multiple tool calls" in exc_msg_l
+                    or "instructor does not support multiple tool calls" in exc_msg_l
+                    or "instructorretryexception" in type(exc).__name__.lower()
+                ):
+                    from crewai import Task as _Task
+
+                    print("\n    ⚠ Structured ranking output failed, retrying with raw output...")
+                    ranking_task_fallback = _Task(
+                        description=ranking_task.description,
+                        expected_output=ranking_task.expected_output,
+                        agent=agent7,
+                    )
+                    crew7_fallback = _Crew(agents=[agent7], tasks=[ranking_task_fallback], verbose=False)
+                    ranking_result = crew7_fallback.kickoff()
+                else:
+                    raise
         finally:
             stop_event.set()
             timer_thread.join(timeout=2)
@@ -967,7 +1202,23 @@ def run_generate(config: dict[str, Any]) -> None:
 
     print(f"\n  Total time: {mins}m {secs}s")
 
-    out_dir = export_results(batch_id, all_results, ranking_output, ranking_usage)
+    total_agent_runs = sum(attempts * 3 + 4 for attempts in actual_attempts_per_round)
+    if ranking_output is not None:
+        total_agent_runs += 1
+    
+    out_dir = export_results(
+        batch_id, all_results, ranking_output, ranking_usage,
+        execution_metrics={
+            "outer_rounds": rounds,
+            "max_inner_attempts": INNER_LOOP_MAX_ATTEMPTS,
+            "actual_attempts_per_round": actual_attempts_per_round,
+            "total_attempts_made": total_attempts_made,
+            "total_agent_runs": total_agent_runs,
+            "startup_count": len(all_results),
+            "has_ranking": ranking_output is not None,
+        },
+        is_generation=True
+    )
     print(f"\n  Results saved to: {out_dir}")
 
 
