@@ -19,24 +19,26 @@ Analyze:
 9. Possible wedge strategy
 10. Overall market attractiveness
 
-Return:
+Return ONLY one valid JSON object with these exact top-level keys:
 
-MARKET ANALYSIS
+- market_category
+- size_class
+- trend
+- direct_competitors
+- indirect_competitors
+- big_tech_risk
+- crowdedness
+- wedge
+- attractiveness_score
+- competition_score
+- conclusion
+- rerun_from_agent
+- rerun_reason
 
-1. Market Category
-2. Market Size Class
-3. Market Trend
-4. Direct Competitor Types
-5. Indirect Competitors
-6. Big Tech / Platform Risk
-7. Market Crowdedness
-8. Wedge Opportunity
-9. Market Attractiveness Score (1-10)
-10. Competition Difficulty Score (1-10)
-
-Final Conclusion:
-
-Is this a good market for a new startup?
+Output rules:
+- Do not output markdown, headings, tables, bullet lists, code fences, or commentary.
+- `size_class` must be exactly one of: small, medium, large, huge, new category.
+- `attractiveness_score` and `competition_score` must be integers 1-10.
 
 ---
 

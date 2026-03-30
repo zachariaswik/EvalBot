@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from enum import Enum
 import json
 import re
 import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, get_origin
+from typing import Any, get_args, get_origin
 
 from crewai import Crew, Task
 
@@ -87,6 +88,50 @@ def _extract_json_segment(text: str) -> str | None:
 def _parse_output_to_dict(output_model: Any, raw: str) -> dict[str, Any] | None:
     """Parse LLM raw output into expected dict, handling fenced JSON and extra prose."""
     def _normalize_for_model(data: dict[str, Any]) -> dict[str, Any]:
+        def _unwrap_optional(annotation: Any) -> Any:
+            origin = get_origin(annotation)
+            if origin is None:
+                return annotation
+            args = [a for a in get_args(annotation) if a is not type(None)]
+            return args[0] if len(args) == 1 else annotation
+
+        def _coerce_rerun_agent(value: Any) -> Any:
+            if value is None:
+                return None
+            if isinstance(value, bool):
+                return None if value is False else 1
+            if isinstance(value, int):
+                return value
+            if isinstance(value, str):
+                s = value.strip().lower()
+                if s in {"", "none", "null", "n/a", "na", "false", "no"}:
+                    return None
+                if s.isdigit():
+                    return int(s)
+                match = re.search(r"agent\s*[_-]?(\d+)", s)
+                if match:
+                    return int(match.group(1))
+            return value
+
+        def _coerce_int(value: Any) -> Any:
+            if isinstance(value, bool):
+                return int(value)
+            if isinstance(value, int):
+                return value
+            if isinstance(value, float):
+                return int(round(value))
+            if isinstance(value, str):
+                s = value.strip()
+                if not s:
+                    return value
+                match = re.search(r"-?\d+(?:\.\d+)?", s)
+                if match:
+                    try:
+                        return int(round(float(match.group(0))))
+                    except Exception:
+                        return value
+            return value
+
         normalized = dict(data)
         for field_name, field_info in output_model.model_fields.items():
             if field_name not in normalized:
@@ -95,7 +140,65 @@ def _parse_output_to_dict(output_model: Any, raw: str) -> dict[str, Any] | None:
             if value is None:
                 continue
 
-            is_list_field = get_origin(field_info.annotation) is list
+            ann = _unwrap_optional(field_info.annotation)
+            ann_origin = get_origin(ann)
+            is_list_field = ann_origin is list
+
+            if field_name == "rerun_from_agent":
+                normalized[field_name] = _coerce_rerun_agent(value)
+                continue
+
+            if isinstance(ann, type) and issubclass(ann, Enum) and isinstance(value, str):
+                raw_val = value.strip()
+                compact = re.sub(r"[^a-z0-9]+", "", raw_val.lower())
+                matched = None
+                for enum_member in ann:
+                    enum_val = str(enum_member.value)
+                    enum_compact = re.sub(r"[^a-z0-9]+", "", enum_val.lower())
+                    if raw_val == enum_val or compact == enum_compact:
+                        matched = enum_member.value
+                        break
+                if matched is not None:
+                    normalized[field_name] = matched
+                    continue
+
+            if ann is int:
+                normalized[field_name] = _coerce_int(value)
+                continue
+
+            if ann is str and not isinstance(value, str):
+                if isinstance(value, (int, float, bool)):
+                    normalized[field_name] = str(value)
+                    continue
+                if isinstance(value, list):
+                    normalized[field_name] = "; ".join(str(v).strip() for v in value if str(v).strip())
+                    continue
+                if isinstance(value, dict):
+                    normalized[field_name] = json.dumps(value, default=str)
+                    continue
+
+            if ann_origin in {dict} and isinstance(value, str):
+                seg = _extract_json_segment(value)
+                candidate = (seg or value).strip()
+                try:
+                    parsed_obj = json.loads(candidate)
+                    if isinstance(parsed_obj, dict):
+                        normalized[field_name] = parsed_obj
+                        continue
+                except Exception:
+                    pass
+
+            if isinstance(ann, type) and hasattr(ann, "model_fields") and isinstance(value, str):
+                seg = _extract_json_segment(value)
+                candidate = (seg or value).strip()
+                try:
+                    parsed_obj = json.loads(candidate)
+                    if isinstance(parsed_obj, dict):
+                        normalized[field_name] = parsed_obj
+                        continue
+                except Exception:
+                    pass
+
             if is_list_field:
                 if isinstance(value, str):
                     lines = [
@@ -110,6 +213,115 @@ def _parse_output_to_dict(output_model: Any, raw: str) -> dict[str, Any] | None:
                     normalized[field_name] = list(value)
 
         return normalized
+
+    def _salvage_for_model(model_cls: Any, src: dict[str, Any]) -> dict[str, Any]:
+        def _unwrap_optional(annotation: Any) -> Any:
+            origin = get_origin(annotation)
+            if origin is None:
+                return annotation
+            args = [a for a in get_args(annotation) if a is not type(None)]
+            return args[0] if len(args) == 1 else annotation
+
+        def _fallback_for(field_name: str, ann: Any) -> Any:
+            origin = get_origin(ann)
+            if origin is list:
+                return []
+            if origin is dict:
+                return {}
+            if isinstance(ann, type) and issubclass(ann, Enum):
+                return next(iter(ann)).value
+            if ann is int:
+                return 5 if "score" in field_name else 0
+            if ann is float:
+                return 0.0
+            if ann is str:
+                return "Not provided"
+            if isinstance(ann, type) and hasattr(ann, "model_fields"):
+                return _salvage_for_model(ann, {})
+            return None
+
+        out: dict[str, Any] = {}
+        for field_name, field_info in model_cls.model_fields.items():
+            ann = _unwrap_optional(field_info.annotation)
+            value = src.get(field_name)
+
+            if value is None:
+                if field_info.is_required():
+                    out[field_name] = _fallback_for(field_name, ann)
+                continue
+
+            if ann is int:
+                if isinstance(value, int):
+                    out[field_name] = value
+                elif isinstance(value, float):
+                    out[field_name] = int(round(value))
+                elif isinstance(value, str):
+                    match = re.search(r"-?\d+(?:\.\d+)?", value)
+                    out[field_name] = int(round(float(match.group(0)))) if match else _fallback_for(field_name, ann)
+                else:
+                    out[field_name] = _fallback_for(field_name, ann)
+                if field_name.startswith("score_") or field_name in {
+                    "clarity_score", "fit_score", "execution_score", "attractiveness_score", "competition_score"
+                }:
+                    out[field_name] = max(1, min(10, int(out[field_name])))
+                continue
+
+            if ann is float:
+                try:
+                    out[field_name] = float(value)
+                except Exception:
+                    out[field_name] = 0.0
+                continue
+
+            if ann is str:
+                out[field_name] = value.strip() if isinstance(value, str) and value.strip() else str(value)
+                continue
+
+            origin = get_origin(ann)
+            if origin is list:
+                if isinstance(value, list):
+                    out[field_name] = [str(v).strip() for v in value if str(v).strip()]
+                elif isinstance(value, str):
+                    parts = [p.strip() for p in re.split(r"\n|,", value) if p.strip()]
+                    out[field_name] = parts
+                else:
+                    out[field_name] = []
+                continue
+
+            if isinstance(ann, type) and issubclass(ann, Enum):
+                if isinstance(value, str):
+                    compact = re.sub(r"[^a-z0-9]+", "", value.lower())
+                    matched = None
+                    for enum_member in ann:
+                        enum_compact = re.sub(r"[^a-z0-9]+", "", str(enum_member.value).lower())
+                        if compact == enum_compact or value == enum_member.value:
+                            matched = enum_member.value
+                            break
+                    out[field_name] = matched if matched is not None else next(iter(ann)).value
+                else:
+                    out[field_name] = next(iter(ann)).value
+                continue
+
+            if isinstance(ann, type) and hasattr(ann, "model_fields"):
+                if isinstance(value, dict):
+                    out[field_name] = _salvage_for_model(ann, value)
+                elif isinstance(value, str):
+                    seg = _extract_json_segment(value)
+                    if seg:
+                        try:
+                            parsed_obj = json.loads(seg)
+                            out[field_name] = _salvage_for_model(ann, parsed_obj if isinstance(parsed_obj, dict) else {})
+                        except Exception:
+                            out[field_name] = _salvage_for_model(ann, {})
+                    else:
+                        out[field_name] = _salvage_for_model(ann, {})
+                else:
+                    out[field_name] = _salvage_for_model(ann, {})
+                continue
+
+            out[field_name] = value
+
+        return out
 
     candidates: list[str] = [raw.strip()]
 
@@ -141,12 +353,32 @@ def _parse_output_to_dict(output_model: Any, raw: str) -> dict[str, Any] | None:
             if isinstance(loaded, list) and loaded and isinstance(loaded[0], dict):
                 loaded = loaded[0]
             if isinstance(loaded, dict):
-                parsed = output_model.model_validate(_normalize_for_model(loaded))
-                return parsed.model_dump(mode="json")
+                normalized = _normalize_for_model(loaded)
+                try:
+                    parsed = output_model.model_validate(normalized)
+                    return parsed.model_dump(mode="json")
+                except Exception:
+                    try:
+                        salvaged = _salvage_for_model(output_model, normalized)
+                        parsed = output_model.model_validate(salvaged)
+                        return parsed.model_dump(mode="json")
+                    except Exception:
+                        continue
         except Exception:
             continue
 
     return None
+
+
+def _default_output_for_model(output_model: Any, reason: str) -> dict[str, Any] | None:
+    """Return a deterministic schema-valid fallback payload from model defaults."""
+    try:
+        payload = output_model.model_validate({}).model_dump(mode="json")
+        payload["_schema_fallback"] = True
+        payload["_schema_fallback_reason"] = reason
+        return payload
+    except Exception:
+        return None
 
 
 def _compute_weighted_score(output_dict: dict) -> tuple[float, str]:

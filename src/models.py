@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
@@ -39,24 +39,24 @@ class FeedbackMixin(BaseModel):
 # ---------------------------------------------------------------------------
 
 class Agent1Output(FeedbackMixin):
-    startup_name: str = Field(description="Name of the startup")
-    one_line_description: str = Field(description="One-line description of the startup")
-    problem: str = Field(description="Problem the startup is solving")
-    solution: str = Field(description="Proposed solution")
-    target_customer: str = Field(description="Target customer / ICP")
-    buyer: str = Field(description="Who pays — may differ from user")
-    market: str = Field(description="Market description")
-    business_model: str = Field(description="How the startup makes money")
-    competitors: str = Field(description="Competitors and alternatives")
-    traction: str = Field(description="Current traction and evidence")
-    team: str = Field(description="Team description")
-    why_now: str = Field(description="Why this is the right time")
-    vision: str = Field(description="Long-term vision")
-    unfair_advantage: str = Field(description="Claimed unfair advantage")
-    risks: str = Field(description="Declared risks")
-    missing_info: list[str] = Field(default_factory=list, description="Missing critical information")
-    inconsistencies: list[str] = Field(default_factory=list, description="Inconsistencies or weak logic")
-    clarity_score: int = Field(ge=1, le=10, description="Overall clarity of submission (1-10)")
+    startup_name: str = Field(default="Unknown Startup", description="Name of the startup")
+    one_line_description: str = Field(default="Not provided", description="One-line description of the startup")
+    problem: str = Field(default="Not provided", description="Problem the startup is solving")
+    solution: str = Field(default="Not provided", description="Proposed solution")
+    target_customer: str = Field(default="Not provided", description="Target customer / ICP")
+    buyer: str = Field(default="Not provided", description="Who pays — may differ from user")
+    market: str = Field(default="Not provided", description="Market description")
+    business_model: str = Field(default="Not provided", description="How the startup makes money")
+    competitors: str = Field(default="Not provided", description="Competitors and alternatives")
+    traction: str = Field(default="Not provided", description="Current traction and evidence")
+    team: str = Field(default="Not provided", description="Team description")
+    why_now: str = Field(default="Not provided", description="Why this is the right time")
+    vision: str = Field(default="Not provided", description="Long-term vision")
+    unfair_advantage: str = Field(default="Not provided", description="Claimed unfair advantage")
+    risks: str = Field(default="Not provided", description="Declared risks")
+    missing_info: list[str] | str = Field(default_factory=list, description="Missing critical information")
+    inconsistencies: list[str] | str = Field(default_factory=list, description="Inconsistencies or weak logic")
+    clarity_score: int = Field(default=5, ge=1, le=10, description="Overall clarity of submission (1-10)")
 
 
 # ---------------------------------------------------------------------------
@@ -81,33 +81,33 @@ class SWOTModel(BaseModel):
 
 
 class Agent2Output(FeedbackMixin):
-    summary: str
-    problem_assessment: str
-    market_assessment: str
-    competition_assessment: str
-    product_assessment: str
-    business_model_assessment: str
-    founder_insight_assessment: str
-    moat_potential: str
-    main_risks: str
-    main_opportunities: str
+    summary: str = Field(default="Not provided")
+    problem_assessment: str = Field(default="Not provided")
+    market_assessment: str = Field(default="Not provided")
+    competition_assessment: str = Field(default="Not provided")
+    product_assessment: str = Field(default="Not provided")
+    business_model_assessment: str = Field(default="Not provided")
+    founder_insight_assessment: str = Field(default="Not provided")
+    moat_potential: str = Field(default="Not provided")
+    main_risks: str | list[str] = Field(default="Not provided")
+    main_opportunities: str | list[str] = Field(default="Not provided")
 
-    swot: SWOTModel
+    swot: SWOTModel = Field(default_factory=SWOTModel)
 
-    score_problem_severity: int = Field(ge=1, le=10)
-    score_market_size: int = Field(ge=1, le=10)
-    score_differentiation: int = Field(ge=1, le=10)
-    score_customer_clarity: int = Field(ge=1, le=10)
-    score_founder_insight: int = Field(ge=1, le=10)
-    score_business_model: int = Field(ge=1, le=10)
-    score_moat_potential: int = Field(ge=1, le=10)
-    score_venture_potential: int = Field(ge=1, le=10)
-    score_competition_difficulty: int = Field(ge=1, le=10)
-    score_execution_feasibility: int = Field(ge=1, le=10)
-    total_score: int = Field(description="Sum of all 10 scores")
+    score_problem_severity: int = Field(default=5, ge=1, le=10)
+    score_market_size: int = Field(default=5, ge=1, le=10)
+    score_differentiation: int = Field(default=5, ge=1, le=10)
+    score_customer_clarity: int = Field(default=5, ge=1, le=10)
+    score_founder_insight: int = Field(default=5, ge=1, le=10)
+    score_business_model: int = Field(default=5, ge=1, le=10)
+    score_moat_potential: int = Field(default=5, ge=1, le=10)
+    score_venture_potential: int = Field(default=5, ge=1, le=10)
+    score_competition_difficulty: int = Field(default=5, ge=1, le=10)
+    score_execution_feasibility: int = Field(default=5, ge=1, le=10)
+    total_score: int = Field(default=50, description="Sum of all 10 scores")
 
-    verdict: Verdict
-    explanation: str = Field(description="Why this verdict was chosen")
+    verdict: Verdict = Field(default=Verdict.PROMISING_NEEDS_FOCUS)
+    explanation: str = Field(default="Schema fallback used due unparseable output", description="Why this verdict was chosen")
 
 
 # ---------------------------------------------------------------------------
@@ -126,8 +126,8 @@ class Agent3Output(FeedbackMixin):
     market_category: str
     size_class: MarketSizeClass
     trend: str = Field(description="Market growth and trends")
-    direct_competitors: str = Field(description="Direct competitor types")
-    indirect_competitors: str = Field(description="Indirect competitors and substitutes")
+    direct_competitors: str | list[str] = Field(description="Direct competitor types")
+    indirect_competitors: str | list[str] = Field(description="Indirect competitors and substitutes")
     big_tech_risk: str = Field(description="Incumbent / Big Tech / Platform risk")
     crowdedness: str = Field(description="Market crowdedness assessment")
     wedge: str = Field(description="Wedge opportunity for a new entrant")
@@ -165,15 +165,15 @@ class Agent4Output(FeedbackMixin):
 # ---------------------------------------------------------------------------
 
 class Agent5Output(FeedbackMixin):
-    founder_fit: str = Field(description="Founder-market fit assessment")
-    domain: str = Field(description="Domain expertise assessment")
-    technical: str = Field(description="Technical strength assessment")
-    distribution: str = Field(description="Distribution / sales ability")
-    strategy: str = Field(description="Strategic clarity")
-    ambition: str = Field(description="Ambition level assessment")
-    execution: str = Field(description="Execution confidence assessment")
+    founder_fit: str | dict[str, Any] = Field(description="Founder-market fit assessment")
+    domain: str | dict[str, Any] = Field(description="Domain expertise assessment")
+    technical: str | dict[str, Any] = Field(description="Technical strength assessment")
+    distribution: str | dict[str, Any] = Field(description="Distribution / sales ability")
+    strategy: str | dict[str, Any] = Field(description="Strategic clarity")
+    ambition: str | dict[str, Any] = Field(description="Ambition level assessment")
+    execution: str | dict[str, Any] = Field(description="Execution confidence assessment")
     missing_roles: list[str] = Field(default_factory=list, description="Missing roles or capabilities")
-    risks: list[str] = Field(default_factory=list, description="Team risks")
+    risks: list[str | dict[str, Any]] = Field(default_factory=list, description="Team risks")
     fit_score: int = Field(ge=1, le=10, description="Founder fit score (1-10)")
     execution_score: int = Field(ge=1, le=10, description="Execution confidence score (1-10)")
     conclusion: str = Field(description="Can this team build a serious startup?")
@@ -191,16 +191,16 @@ class Recommendation(str, Enum):
 
 
 class Agent6Output(FeedbackMixin):
-    recommendation: Recommendation
-    customer_segment: str = Field(description="Best customer segment")
-    wedge: str = Field(description="Best wedge strategy")
+    recommendation: Recommendation = Field(default=Recommendation.REFINE)
+    customer_segment: str = Field(default="Not provided", description="Best customer segment")
+    wedge: str = Field(default="Not provided", description="Best wedge strategy")
     remove: list[str] = Field(default_factory=list, description="What to remove")
     emphasize: list[str] = Field(default_factory=list, description="What to emphasize")
     pivots: list[str] = Field(default_factory=list, description="Suggested pivot directions (up to 3)")
-    positioning_rewrite: str = Field(description="Suggested positioning rewrite")
-    thirty_day_plan: str = Field(description="30-day action plan")
-    ninety_day_plan: str = Field(description="90-day action plan")
-    mistake_to_avoid: str = Field(description="Biggest strategic mistake to avoid")
+    positioning_rewrite: str = Field(default="Not provided", description="Suggested positioning rewrite")
+    thirty_day_plan: str | list[str] = Field(default="Not provided", description="30-day action plan")
+    ninety_day_plan: str | list[str] = Field(default="Not provided", description="90-day action plan")
+    mistake_to_avoid: str | list[str] = Field(default="Not provided", description="Biggest strategic mistake to avoid")
 
 
 # ---------------------------------------------------------------------------

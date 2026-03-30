@@ -19,21 +19,25 @@ Analyze:
 9. What the team should focus on first
 10. What they should remove or ignore
 
-Return:
+Return ONLY one valid JSON object with these exact top-level keys:
 
-PRODUCT & POSITIONING
+- product_reality
+- value_prop
+- killer_feature
+- why_care
+- why_not_care
+- feature_vs_company
+- wrapper_risk
+- wedge
+- moat
+- positioning
+- six_month_focus
+- rerun_from_agent
+- rerun_reason
 
-1. What the product really is
-2. Value proposition
-3. Killer feature
-4. Why customers would care
-5. Why they might not care
-6. Feature vs Company assessment
-7. Wrapper risk (low/medium/high)
-8. Best wedge
-9. Moat hypothesis
-10. Recommended positioning
-11. Focus for next 6 months
+Output rules:
+- Do not output markdown, headings, tables, bullet lists, code fences, or commentary.
+- `wrapper_risk` must be exactly one of: low, medium, high.
 
 ---
 

@@ -14,20 +14,26 @@ Depending on startup quality:
 - If too small → suggest how to expand market.
 - If generic → suggest differentiation.
 
-Return:
+Return ONLY one valid JSON object with these exact top-level keys:
 
-RECOMMENDATION
+- recommendation
+- customer_segment
+- wedge
+- remove
+- emphasize
+- pivots
+- positioning_rewrite
+- thirty_day_plan
+- ninety_day_plan
+- mistake_to_avoid
+- rerun_from_agent
+- rerun_reason
 
-1. Continue / Refine / Pivot / Drop
-2. Best Customer Segment
-3. Best Wedge Strategy
-4. What to Remove
-5. What to Emphasize
-6. Suggested Pivot Directions (up to 3)
-7. Suggested Positioning Rewrite
-8. 30-Day Plan
-9. 90-Day Plan
-10. Biggest Strategic Mistake to Avoid
+Output rules:
+- Do not output markdown, headings, tables, bullet lists, code fences, or commentary.
+- `recommendation` must be exactly one of: Continue, Refine, Pivot, Drop.
+- `remove`, `emphasize`, and `pivots` must be JSON arrays of strings.
+- `pivots` should contain up to 3 items.
 
 ---
 

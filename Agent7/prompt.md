@@ -26,28 +26,23 @@ Penalize:
 - No wedge
 - Weak founder insight
 
-Return:
+Return ONLY one valid JSON object with these exact top-level keys:
 
-COHORT RANKING
+- ranked_startups
+- top_vc_candidates
+- promising_need_focus
+- promising_need_pivot
+- good_small_businesses
+- weak_ideas
+- common_patterns
+- interesting_themes
+- shortlist
 
-1. Top Startups
-2. Top VC Candidates
-3. Promising but Need Focus
-4. Promising but Need Pivot
-5. Good Small Businesses
-6. Weak Ideas to Reject
-7. Most Common Idea Patterns
-8. Most Interesting Themes
-9. Recommended Shortlist for Interviews
-
-Also assign each startup a label:
-
-- VC-Scale
-- Needs Pivot
-- Small Business
-- Feature
-- Wrapper
-- Reject
+Output rules:
+- Do not output markdown, headings, tables, bullet lists, code fences, or commentary.
+- `ranked_startups` must be an array of objects with keys: `name`, `label`, `rank`, `score`, `summary`.
+- `label` must be exactly one of: VC-Scale, Needs Pivot, Small Business, Feature, Wrapper, Reject.
+- `rank` must be an integer and `score` must be numeric.
 
 ---
 

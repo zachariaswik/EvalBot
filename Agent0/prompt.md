@@ -51,8 +51,12 @@ If this is round 2+, you will receive the full strategic evaluation from the pre
 
 ## Output Format
 
-Produce exactly four fields:
-- **startup_name**: A memorable, concrete name
-- **one_line_description**: One sentence describing the startup
-- **submission_text**: The complete startup submission (as a founder would write it)
-- **strategy_notes**: Your internal reasoning about why this idea should score well
+Return ONLY one valid JSON object with these exact top-level keys:
+- startup_name
+- one_line_description
+- submission_text
+- strategy_notes
+
+Output rules:
+- Do not output markdown, headings, tables, bullet lists, code fences, or commentary.
+- `submission_text` must be complete and detailed enough for downstream parsing.

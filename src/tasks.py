@@ -38,12 +38,20 @@ _FEEDBACK_INSTRUCTION = (
 def _json_only_instruction(agent_number: int) -> str:
     """Return a strict JSON-only output instruction tailored to the agent schema."""
     model = AGENT_OUTPUT_MODELS[agent_number]
-    fields = ", ".join(model.model_fields.keys())
+    required_fields = [
+        name for name, info in model.model_fields.items() if info.is_required()
+    ]
+    optional_fields = [
+        name for name, info in model.model_fields.items() if not info.is_required()
+    ]
+    required = ", ".join(required_fields)
+    optional = ", ".join(optional_fields)
     return (
         "\n\nOUTPUT FORMAT REQUIREMENT:\n"
         "Return ONLY one valid JSON object.\n"
         "Do NOT include markdown, headings, tables, code fences, or explanatory prose.\n"
-        f"Required top-level keys: {fields}.\n"
+        f"Required top-level keys: {required}.\n"
+        f"Optional keys (include only when relevant): {optional}.\n"
         "Use exact enum values where applicable.\n"
     )
 

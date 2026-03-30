@@ -35,25 +35,31 @@ Instructions:
 6. Identify logical inconsistencies or confusion in the pitch.
 7. Keep everything concise and structured.
 
-Return in this format:
+Return ONLY one valid JSON object with these exact top-level keys:
 
-STARTUP BRIEF
+- startup_name
+- one_line_description
+- problem
+- solution
+- target_customer
+- buyer
+- market
+- business_model
+- competitors
+- traction
+- team
+- why_now
+- vision
+- unfair_advantage
+- risks
+- missing_info
+- inconsistencies
+- clarity_score
+- rerun_from_agent
+- rerun_reason
 
-1. Startup Name
-2. One-line Description
-3. Problem
-4. Solution
-5. Target Customer
-6. Buyer
-7. Market
-8. Business Model
-9. Competitors / Alternatives
-10. Traction
-11. Team
-12. Why Now
-13. Long-term Vision
-14. Unfair Advantage (claimed)
-15. Declared Risks
-16. Missing Critical Information
-17. Inconsistencies or Weak Logic
-18. Overall Clarity of Submission (1-10)
+Output rules:
+- Do not output markdown, headings, tables, bullet lists, code fences, or commentary.
+- `clarity_score` must be an integer from 1 to 10.
+- `missing_info` and `inconsistencies` must be JSON arrays of strings.
+- `rerun_from_agent` and `rerun_reason` should usually be null for Agent 1.

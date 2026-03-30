@@ -23,53 +23,51 @@ Evaluate the startup across these dimensions:
 
 Score each from 1 to 10.
 
-Then provide:
+Return ONLY one valid JSON object with these exact top-level keys:
 
-STARTUP ANALYSIS
+- summary
+- problem_assessment
+- market_assessment
+- competition_assessment
+- product_assessment
+- business_model_assessment
+- founder_insight_assessment
+- moat_potential
+- main_risks
+- main_opportunities
+- swot
+- score_problem_severity
+- score_market_size
+- score_differentiation
+- score_customer_clarity
+- score_founder_insight
+- score_business_model
+- score_moat_potential
+- score_venture_potential
+- score_competition_difficulty
+- score_execution_feasibility
+- total_score
+- verdict
+- explanation
+- rerun_from_agent
+- rerun_reason
 
-1. Summary
-2. Problem Assessment
-3. Market Assessment
-4. Competition Assessment
-5. Product / Differentiation Assessment
-6. Business Model Assessment
-7. Founder Insight Assessment
-8. Moat Potential
-9. Main Risks
-10. Main Opportunities
+Nested JSON requirements:
+- `swot` must be an object with keys: strengths, weaknesses, opportunities, threats.
+- Each SWOT key must be an array of strings.
 
-SWOT
-
-- Strengths
-- Weaknesses
-- Opportunities
-- Threats
-
-SCORING
-
-- Problem Severity
-- Market Size
-- Differentiation
-- Customer Clarity
-- Founder Insight
-- Business Model
-- Moat Potential
-- Venture Potential
-- Competition Difficulty
-- Execution Feasibility
-- Total Score (sum)
-
-FINAL VERDICT (choose one):
-
-- Top VC Candidate
-- Promising, Needs Sharper Focus
-- Promising, But Needs Pivot
-- Good Small Business, Not Venture-Scale
-- Feature, Not a Company
-- AI Wrapper With Weak Moat
-- Reject
-
-Explain why.
+Output rules:
+- Do not output markdown, headings, tables, bullet lists, code fences, or commentary.
+- All score_* fields must be integers 1-10.
+- `total_score` must be the integer sum of the 10 score_* fields.
+- `verdict` must be exactly one of:
+	- Top VC Candidate
+	- Promising, Needs Sharper Focus
+	- Promising, But Needs Pivot
+	- Good Small Business, Not Venture-Scale
+	- Feature, Not a Company
+	- AI Wrapper With Weak Moat
+	- Reject
 
 ---
 

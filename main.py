@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from enum import Enum
 import json
 import os
 import re
@@ -10,7 +11,7 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, get_origin
+from typing import Any, get_args, get_origin
 
 from dotenv import load_dotenv
 
@@ -137,6 +138,172 @@ def _extract_json_segment(text: str) -> str | None:
 def _parse_output_to_dict(output_model: Any, raw: str) -> dict[str, Any] | None:
     """Parse LLM raw output into the expected dict, handling fenced JSON and extra prose."""
     def _normalize_for_model(data: dict[str, Any]) -> dict[str, Any]:
+        def _unwrap_optional(annotation: Any) -> Any:
+            origin = get_origin(annotation)
+            if origin is None:
+                return annotation
+            args = [a for a in get_args(annotation) if a is not type(None)]
+            return args[0] if len(args) == 1 else annotation
+
+        def _coerce_rerun_agent(value: Any) -> Any:
+            if value is None:
+                return None
+            if isinstance(value, bool):
+                return None if value is False else 1
+            if isinstance(value, int):
+                return value
+            if isinstance(value, str):
+                s = value.strip().lower()
+                if s in {"", "none", "null", "n/a", "na", "false", "no"}:
+                    return None
+                if s.isdigit():
+                    return int(s)
+                # Handles variants like "Agent1", "agent_2", "Agent 3 Parser".
+                match = re.search(r"agent\s*[_-]?(\d+)", s)
+                if match:
+                    return int(match.group(1))
+            return value
+
+        def _coerce_str(value: Any, fallback: str = "Not provided") -> str:
+            if value is None:
+                return fallback
+            if isinstance(value, str):
+                s = value.strip()
+                return s if s else fallback
+            return str(value)
+
+        def _clamp_score(field_name: str, value: int) -> int:
+            if field_name.startswith("score_"):
+                return max(1, min(10, value))
+            if field_name in {"clarity_score", "fit_score", "execution_score", "attractiveness_score", "competition_score"}:
+                return max(1, min(10, value))
+            return value
+
+        def _default_for_field(field_name: str, ann: Any) -> Any:
+            origin = get_origin(ann)
+            if origin is list:
+                return []
+            if origin is dict:
+                return {}
+            if isinstance(ann, type) and issubclass(ann, Enum):
+                return next(iter(ann)).value
+            if isinstance(ann, type) and ann is int:
+                return 5 if "score" in field_name else 0
+            if isinstance(ann, type) and ann is float:
+                return 0.0
+            if isinstance(ann, type) and ann is str:
+                return "Not provided"
+            if isinstance(ann, type) and hasattr(ann, "model_fields"):
+                return _salvage_for_model(ann, {})
+            return None
+
+        def _salvage_for_model(model_cls: Any, src: dict[str, Any]) -> dict[str, Any]:
+            out: dict[str, Any] = {}
+            for f_name, f_info in model_cls.model_fields.items():
+                f_ann = _unwrap_optional(f_info.annotation)
+                f_origin = get_origin(f_ann)
+                has_value = f_name in src and src[f_name] is not None
+                raw_value = src.get(f_name) if has_value else None
+
+                if not has_value:
+                    if f_info.is_required():
+                        out[f_name] = _default_for_field(f_name, f_ann)
+                    continue
+
+                if f_name == "rerun_from_agent":
+                    out[f_name] = _coerce_rerun_agent(raw_value)
+                    continue
+
+                if isinstance(f_ann, type) and issubclass(f_ann, Enum):
+                    if isinstance(raw_value, str):
+                        raw_val = raw_value.strip()
+                        compact = re.sub(r"[^a-z0-9]+", "", raw_val.lower())
+                        matched = None
+                        for enum_member in f_ann:
+                            enum_val = str(enum_member.value)
+                            enum_compact = re.sub(r"[^a-z0-9]+", "", enum_val.lower())
+                            if raw_val == enum_val or compact == enum_compact:
+                                matched = enum_member.value
+                                break
+                        out[f_name] = matched if matched is not None else next(iter(f_ann)).value
+                    else:
+                        out[f_name] = next(iter(f_ann)).value
+                    continue
+
+                if f_ann is int:
+                    out[f_name] = _clamp_score(f_name, _coerce_int(raw_value) if _coerce_int(raw_value) is not None else 0)
+                    continue
+
+                if f_ann is float:
+                    try:
+                        out[f_name] = float(raw_value)
+                    except Exception:
+                        out[f_name] = 0.0
+                    continue
+
+                if f_ann is str:
+                    out[f_name] = _coerce_str(raw_value)
+                    continue
+
+                if f_origin is list:
+                    if isinstance(raw_value, list):
+                        out[f_name] = [str(x).strip() for x in raw_value if str(x).strip()]
+                    elif isinstance(raw_value, str):
+                        lines = [
+                            line.strip().lstrip("-*•0123456789. ").strip()
+                            for line in raw_value.replace("\r", "").split("\n")
+                        ]
+                        parts = [p for p in lines if p]
+                        if len(parts) <= 1 and "," in raw_value:
+                            parts = [p.strip() for p in raw_value.split(",") if p.strip()]
+                        out[f_name] = parts
+                    else:
+                        out[f_name] = [str(raw_value)] if raw_value is not None else []
+                    continue
+
+                if isinstance(f_ann, type) and hasattr(f_ann, "model_fields"):
+                    if isinstance(raw_value, str):
+                        seg = _extract_json_segment(raw_value)
+                        candidate = (seg or raw_value).strip()
+                        try:
+                            parsed_obj = json.loads(candidate)
+                        except Exception:
+                            parsed_obj = {}
+                        if isinstance(parsed_obj, dict):
+                            out[f_name] = _salvage_for_model(f_ann, parsed_obj)
+                        else:
+                            out[f_name] = _salvage_for_model(f_ann, {})
+                    elif isinstance(raw_value, dict):
+                        out[f_name] = _salvage_for_model(f_ann, raw_value)
+                    else:
+                        out[f_name] = _salvage_for_model(f_ann, {})
+                    continue
+
+                out[f_name] = raw_value
+
+            return out
+
+        def _coerce_int(value: Any) -> Any:
+            if isinstance(value, bool):
+                return int(value)
+            if isinstance(value, int):
+                return value
+            if isinstance(value, float):
+                return int(round(value))
+            if isinstance(value, str):
+                s = value.strip()
+                if not s:
+                    return value
+                # Handles "7", "7.0", "7/10", "Score: 7", etc.
+                match = re.search(r"-?\d+(?:\.\d+)?", s)
+                if match:
+                    try:
+                        num = float(match.group(0))
+                        return int(round(num))
+                    except Exception:
+                        return value
+            return value
+
         normalized = dict(data)
         for field_name, field_info in output_model.model_fields.items():
             if field_name not in normalized:
@@ -145,7 +312,70 @@ def _parse_output_to_dict(output_model: Any, raw: str) -> dict[str, Any] | None:
             if value is None:
                 continue
 
-            is_list_field = get_origin(field_info.annotation) is list
+            ann = _unwrap_optional(field_info.annotation)
+            ann_origin = get_origin(ann)
+            is_list_field = ann_origin is list
+
+            if field_name == "rerun_from_agent":
+                normalized[field_name] = _coerce_rerun_agent(value)
+                continue
+
+            # Normalize enum values with forgiving case/format matching.
+            if isinstance(ann, type) and issubclass(ann, Enum) and isinstance(value, str):
+                raw_val = value.strip()
+                compact = re.sub(r"[^a-z0-9]+", "", raw_val.lower())
+                matched = None
+                for enum_member in ann:
+                    enum_val = str(enum_member.value)
+                    enum_compact = re.sub(r"[^a-z0-9]+", "", enum_val.lower())
+                    if raw_val == enum_val or compact == enum_compact:
+                        matched = enum_member.value
+                        break
+                if matched is not None:
+                    normalized[field_name] = matched
+                    continue
+
+            # Coerce integer-like fields from strings/floats.
+            if ann is int:
+                normalized[field_name] = _coerce_int(value)
+                continue
+
+            # Coerce string fields from non-string values.
+            if ann is str and not isinstance(value, str):
+                if isinstance(value, (int, float, bool)):
+                    normalized[field_name] = str(value)
+                    continue
+                if isinstance(value, list):
+                    normalized[field_name] = "; ".join(str(v).strip() for v in value if str(v).strip())
+                    continue
+                if isinstance(value, dict):
+                    normalized[field_name] = json.dumps(value, default=str)
+                    continue
+
+            # If a dict/model field arrives as a JSON string, parse it.
+            if ann_origin in {dict} and isinstance(value, str):
+                seg = _extract_json_segment(value)
+                candidate = (seg or value).strip()
+                try:
+                    parsed_obj = json.loads(candidate)
+                    if isinstance(parsed_obj, dict):
+                        normalized[field_name] = parsed_obj
+                        continue
+                except Exception:
+                    pass
+
+            # If a nested model field arrives as a JSON string, parse it to dict first.
+            if isinstance(ann, type) and hasattr(ann, "model_fields") and isinstance(value, str):
+                seg = _extract_json_segment(value)
+                candidate = (seg or value).strip()
+                try:
+                    parsed_obj = json.loads(candidate)
+                    if isinstance(parsed_obj, dict):
+                        normalized[field_name] = parsed_obj
+                        continue
+                except Exception:
+                    pass
+
             if is_list_field:
                 if isinstance(value, str):
                     lines = [
@@ -160,6 +390,115 @@ def _parse_output_to_dict(output_model: Any, raw: str) -> dict[str, Any] | None:
                     normalized[field_name] = list(value)
 
         return normalized
+
+    def _salvage_for_model(model_cls: Any, src: dict[str, Any]) -> dict[str, Any]:
+        def _unwrap_optional(annotation: Any) -> Any:
+            origin = get_origin(annotation)
+            if origin is None:
+                return annotation
+            args = [a for a in get_args(annotation) if a is not type(None)]
+            return args[0] if len(args) == 1 else annotation
+
+        def _fallback_for(field_name: str, ann: Any) -> Any:
+            origin = get_origin(ann)
+            if origin is list:
+                return []
+            if origin is dict:
+                return {}
+            if isinstance(ann, type) and issubclass(ann, Enum):
+                return next(iter(ann)).value
+            if ann is int:
+                return 5 if "score" in field_name else 0
+            if ann is float:
+                return 0.0
+            if ann is str:
+                return "Not provided"
+            if isinstance(ann, type) and hasattr(ann, "model_fields"):
+                return _salvage_for_model(ann, {})
+            return None
+
+        out: dict[str, Any] = {}
+        for field_name, field_info in model_cls.model_fields.items():
+            ann = _unwrap_optional(field_info.annotation)
+            value = src.get(field_name)
+
+            if value is None:
+                if field_info.is_required():
+                    out[field_name] = _fallback_for(field_name, ann)
+                continue
+
+            if ann is int:
+                if isinstance(value, int):
+                    out[field_name] = value
+                elif isinstance(value, float):
+                    out[field_name] = int(round(value))
+                elif isinstance(value, str):
+                    match = re.search(r"-?\d+(?:\.\d+)?", value)
+                    out[field_name] = int(round(float(match.group(0)))) if match else _fallback_for(field_name, ann)
+                else:
+                    out[field_name] = _fallback_for(field_name, ann)
+                if field_name.startswith("score_") or field_name in {
+                    "clarity_score", "fit_score", "execution_score", "attractiveness_score", "competition_score"
+                }:
+                    out[field_name] = max(1, min(10, int(out[field_name])))
+                continue
+
+            if ann is float:
+                try:
+                    out[field_name] = float(value)
+                except Exception:
+                    out[field_name] = 0.0
+                continue
+
+            if ann is str:
+                out[field_name] = value.strip() if isinstance(value, str) and value.strip() else str(value)
+                continue
+
+            origin = get_origin(ann)
+            if origin is list:
+                if isinstance(value, list):
+                    out[field_name] = [str(v).strip() for v in value if str(v).strip()]
+                elif isinstance(value, str):
+                    parts = [p.strip() for p in re.split(r"\n|,", value) if p.strip()]
+                    out[field_name] = parts
+                else:
+                    out[field_name] = []
+                continue
+
+            if isinstance(ann, type) and issubclass(ann, Enum):
+                if isinstance(value, str):
+                    compact = re.sub(r"[^a-z0-9]+", "", value.lower())
+                    matched = None
+                    for enum_member in ann:
+                        enum_compact = re.sub(r"[^a-z0-9]+", "", str(enum_member.value).lower())
+                        if compact == enum_compact or value == enum_member.value:
+                            matched = enum_member.value
+                            break
+                    out[field_name] = matched if matched is not None else next(iter(ann)).value
+                else:
+                    out[field_name] = next(iter(ann)).value
+                continue
+
+            if isinstance(ann, type) and hasattr(ann, "model_fields"):
+                if isinstance(value, dict):
+                    out[field_name] = _salvage_for_model(ann, value)
+                elif isinstance(value, str):
+                    seg = _extract_json_segment(value)
+                    if seg:
+                        try:
+                            parsed_obj = json.loads(seg)
+                            out[field_name] = _salvage_for_model(ann, parsed_obj if isinstance(parsed_obj, dict) else {})
+                        except Exception:
+                            out[field_name] = _salvage_for_model(ann, {})
+                    else:
+                        out[field_name] = _salvage_for_model(ann, {})
+                else:
+                    out[field_name] = _salvage_for_model(ann, {})
+                continue
+
+            out[field_name] = value
+
+        return out
 
     candidates: list[str] = [raw.strip()]
 
@@ -191,12 +530,71 @@ def _parse_output_to_dict(output_model: Any, raw: str) -> dict[str, Any] | None:
             if isinstance(loaded, list) and loaded and isinstance(loaded[0], dict):
                 loaded = loaded[0]
             if isinstance(loaded, dict):
-                parsed = output_model.model_validate(_normalize_for_model(loaded))
-                return parsed.model_dump(mode="json")
+                normalized = _normalize_for_model(loaded)
+                try:
+                    parsed = output_model.model_validate(normalized)
+                    return parsed.model_dump(mode="json")
+                except Exception:
+                    try:
+                        salvaged = _salvage_for_model(output_model, normalized)
+                        parsed = output_model.model_validate(salvaged)
+                        return parsed.model_dump(mode="json")
+                    except Exception:
+                        continue
         except Exception:
             continue
 
     return None
+
+
+def _parse_failure_reason(output_model: Any, raw: str) -> str | None:
+    """Return a short reason why raw output failed schema validation."""
+    candidates: list[str] = [raw.strip()]
+
+    for block in re.findall(r"```(?:json)?\s*([\s\S]*?)\s*```", raw, flags=re.IGNORECASE):
+        stripped = block.strip()
+        if stripped:
+            candidates.append(stripped)
+
+    segment = _extract_json_segment(raw)
+    if segment:
+        candidates.append(segment.strip())
+
+    seen: set[str] = set()
+    for candidate in candidates:
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+
+        # First try JSON string validation directly.
+        try:
+            output_model.model_validate_json(candidate)
+            return None
+        except Exception as exc:
+            msg = str(exc)
+
+        # Then try loading and validating as dict/list.
+        try:
+            loaded = json.loads(candidate)
+            if isinstance(loaded, list) and loaded and isinstance(loaded[0], dict):
+                loaded = loaded[0]
+            if isinstance(loaded, dict):
+                try:
+                    output_model.model_validate(loaded)
+                    return None
+                except Exception as exc2:
+                    msg = str(exc2)
+            else:
+                msg = "Top-level JSON is not an object."
+        except Exception as exc3:
+            msg = f"JSON decode error: {exc3}"
+
+        msg = " ".join(msg.split())
+        if len(msg) > 220:
+            msg = msg[:217] + "..."
+        return msg
+
+    return "No JSON object candidate found in model output."
 
 
 def _repair_output_to_json(agent: Any, output_model: Any, raw: str) -> dict[str, Any] | None:
@@ -219,6 +617,17 @@ def _repair_output_to_json(agent: Any, output_model: Any, raw: str) -> dict[str,
     repair_crew = _Crew(agents=[agent], tasks=[repair_task], verbose=False)
     repair_result = repair_crew.kickoff()
     return _parse_output_to_dict(output_model, repair_result.raw)
+
+
+def _default_output_for_model(output_model: Any, reason: str) -> dict[str, Any] | None:
+    """Return a deterministic schema-valid fallback payload from model defaults."""
+    try:
+        payload = output_model.model_validate({}).model_dump(mode="json")
+        payload["_schema_fallback"] = True
+        payload["_schema_fallback_reason"] = reason
+        return payload
+    except Exception:
+        return None
 
 # Pricing per million tokens: {model_prefix: (input_$/M, output_$/M)}
 MODEL_PRICING: dict[str, tuple[float, float]] = {
@@ -665,7 +1074,13 @@ INNER_LOOP_MAX_ATTEMPTS = 5
 
 
 def _show_agent_timer(
-    agent_number: int, model_name: str, stop_event: threading.Event
+    agent_number: int,
+    model_name: str,
+    stop_event: threading.Event,
+    current_round: int | None = None,
+    total_rounds: int | None = None,
+    inner_attempt: int | None = None,
+    total_inner_attempts: int | None = None,
 ) -> None:
     """Show a live-updating elapsed timer for a running agent."""
     role = AGENT_ROLES.get(agent_number, "Unknown")
@@ -673,14 +1088,21 @@ def _show_agent_timer(
     while not stop_event.is_set():
         elapsed = int(time.time() - start)
         mins, secs = divmod(elapsed, 60)
-        print(
-            f"\r    ⏱ Agent {agent_number} ({role}) [{model_name}] ... {mins}m {secs}s",
-            end="",
-            flush=True,
-        )
+        round_ctx = ""
+        inner_ctx = ""
+        if current_round is not None and total_rounds is not None:
+            round_ctx = f" | Round {current_round}/{total_rounds}"
+        if inner_attempt is not None and total_inner_attempts is not None:
+            inner_ctx = f" | Inner {inner_attempt}/{total_inner_attempts}"
+            msg = f"    ⏱ Agent {agent_number} ({role}) [{model_name}]{round_ctx}{inner_ctx} ... {mins}m {secs}s"
+            # Pad message to fixed width and use \r to overwrite in-place
+            msg_padded = msg.ljust(160)
+            sys.stdout.write(f"\r{msg_padded}")
+            sys.stdout.flush()
         time.sleep(1)
-    # Clear the timer line
-    print("\r" + " " * 80 + "\r", end="", flush=True)
+        # Clear the timer line with carriage return
+        sys.stdout.write("\r" + " " * 160 + "\r")
+        sys.stdout.flush()
 
 
 def _run_single_agent(
@@ -688,6 +1110,10 @@ def _run_single_agent(
     submission_text: str,
     prior_context: dict[int, Any] | None = None,
     agent0_task_kwargs: dict[str, Any] | None = None,
+    current_round: int | None = None,
+    total_rounds: int | None = None,
+    inner_attempt: int | None = None,
+    total_inner_attempts: int | None = None,
 ) -> tuple[dict, dict]:
     """Run a single agent in a one-agent CrewAI Crew and return (output_dict, usage_dict).
 
@@ -730,7 +1156,15 @@ def _run_single_agent(
     agent_start = time.time()
     timer_thread = threading.Thread(
         target=_show_agent_timer,
-        args=(agent_number, model_name, stop_event),
+        args=(
+            agent_number,
+            model_name,
+            stop_event,
+            current_round,
+            total_rounds,
+            inner_attempt,
+            total_inner_attempts,
+        ),
         daemon=True,
     )
     timer_thread.start()
@@ -742,10 +1176,30 @@ def _run_single_agent(
             int(getattr(u, "total_tokens", 0) or 0),
         )
 
+    def _kickoff_with_retry(crew_obj: Any, max_retries: int = 3) -> Any:
+        """Execute crew.kickoff() with exponential backoff retry for transient network errors."""
+        for attempt in range(max_retries):
+            try:
+                return crew_obj.kickoff()
+            except Exception as e:
+                exc_msg_l = str(e).lower()
+                is_transient = (
+                    "connection reset by peer" in exc_msg_l
+                    or "connectionerror" in exc_msg_l
+                    or "apiconnectionerror" in type(e).__name__.lower()
+                    or "readtimeout" in exc_msg_l
+                    or "readerror" in type(e).__name__.lower()
+                )
+                if not is_transient or attempt == max_retries - 1:
+                    raise
+                wait_secs = 2 ** attempt
+                print(f"\n    ⚠ Transient network error for Agent {agent_number} (attempt {attempt + 1}/{max_retries}), retrying in {wait_secs}s...")
+                time.sleep(wait_secs)
+
     usage_acc = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     result = None
     try:
-        result = crew.kickoff()
+        result = _kickoff_with_retry(crew)
         p, c, t = _usage_parts(result.token_usage)
         usage_acc["prompt_tokens"] += p
         usage_acc["completion_tokens"] += c
@@ -767,7 +1221,7 @@ def _run_single_agent(
                 agent=agent,
             )
             crew_fallback = Crew(agents=[agent], tasks=[task_fallback], verbose=False)
-            result = crew_fallback.kickoff()
+            result = _kickoff_with_retry(crew_fallback)
             p, c, t = _usage_parts(result.token_usage)
             usage_acc["prompt_tokens"] += p
             usage_acc["completion_tokens"] += c
@@ -792,7 +1246,7 @@ def _run_single_agent(
         if parsed_dict is not None:
             output_dict = parsed_dict
         else:
-            print(f"    ⚠ Could not parse Agent {agent_number} output into expected schema; attempting JSON repair...")
+            reason = _parse_failure_reason(output_model, result.raw)
             repaired = None
             try:
                 repaired = _repair_output_to_json(agent, output_model, result.raw)
@@ -803,8 +1257,11 @@ def _run_single_agent(
                 print(f"    ✓ Agent {agent_number} JSON repaired successfully")
                 output_dict = repaired
             else:
-                # High-impact agents (2, 6): do one strict rerun before giving up.
-                if agent_number in {2, 6}:
+                print(f"    ⚠ Could not parse Agent {agent_number} output into expected schema; attempting JSON repair...")
+                if reason:
+                    print(f"    ↳ Parse diagnostic: {reason}")
+                # High-impact agents (1, 2, 6): do one strict rerun before giving up.
+                if agent_number in {1, 2, 6}:
                     print(f"    ⚠ JSON repair failed for Agent {agent_number}; running strict format rerun...")
                     field_names = ", ".join(output_model.model_fields.keys())
                     strict_task = Task(
@@ -847,7 +1304,15 @@ def _run_single_agent(
                         output_dict = strict_parsed
                     else:
                         print(f"    ⚠ Agent {agent_number} strict rerun also failed")
-                        output_dict = {"raw_output": result.raw, "_parse_failed": True}
+                        fallback = _default_output_for_model(
+                            output_model,
+                            reason=f"Agent {agent_number} parse/repair/rerun failed",
+                        )
+                        if fallback is not None:
+                            print(f"    ✓ Agent {agent_number} using deterministic schema fallback")
+                            output_dict = fallback
+                        else:
+                            output_dict = {"raw_output": result.raw, "_parse_failed": True}
                 else:
                     print(f"    ⚠ JSON repair failed for Agent {agent_number}")
                     output_dict = {"raw_output": result.raw, "_parse_failed": True}
@@ -1002,6 +1467,10 @@ def run_generate(config: dict[str, Any]) -> None:
                     "attempt_number": attempt,
                     "force_completely_new_idea": force_completely_new_idea,
                 },
+                current_round=round_num,
+                total_rounds=rounds,
+                inner_attempt=attempt,
+                total_inner_attempts=INNER_LOOP_MAX_ATTEMPTS,
             )
             startup_name = a0_output.get("startup_name", "Generated Startup")
             submission_text = a0_output.get("submission_text", "")
@@ -1014,6 +1483,10 @@ def run_generate(config: dict[str, Any]) -> None:
             a1_output, a1_usage = _run_single_agent(
                 agent_number=1,
                 submission_text=submission_text,
+                current_round=round_num,
+                total_rounds=rounds,
+                inner_attempt=attempt,
+                total_inner_attempts=INNER_LOOP_MAX_ATTEMPTS,
             )
             print(f"    • [Agent 1: Intake Parser] Processing submission...")
 
@@ -1022,6 +1495,10 @@ def run_generate(config: dict[str, Any]) -> None:
                 agent_number=2,
                 submission_text=submission_text,
                 prior_context={1: a1_output},
+                current_round=round_num,
+                total_rounds=rounds,
+                inner_attempt=attempt,
+                total_inner_attempts=INNER_LOOP_MAX_ATTEMPTS,
             )
             print(f"    • [Agent 2: Venture Analyst] Scoring...")  
 
@@ -1111,6 +1588,10 @@ def run_generate(config: dict[str, Any]) -> None:
                 agent_number=agent_num,
                 submission_text=submission_text,
                 prior_context=prior_context,
+                current_round=round_num,
+                total_rounds=rounds,
+                inner_attempt=used_attempt,
+                total_inner_attempts=INNER_LOOP_MAX_ATTEMPTS,
             )
             print(f"  ✓ [{agent_num}] {agent_role}")
             prior_context[agent_num] = a_output

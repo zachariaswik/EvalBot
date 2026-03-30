@@ -18,24 +18,27 @@ Analyze:
 8. Missing roles or capabilities
 9. Team risks
 
-Return:
+Return ONLY one valid JSON object with these exact top-level keys:
 
-FOUNDER FIT ANALYSIS
+- founder_fit
+- domain
+- technical
+- distribution
+- strategy
+- ambition
+- execution
+- missing_roles
+- risks
+- fit_score
+- execution_score
+- conclusion
+- rerun_from_agent
+- rerun_reason
 
-1. Founder-Market Fit
-2. Domain Expertise
-3. Technical Strength
-4. Distribution Ability
-5. Strategic Clarity
-6. Execution Confidence
-7. Missing Roles
-8. Team Risks
-9. Founder Fit Score (1-10)
-10. Execution Confidence Score (1-10)
-
-Final Conclusion:
-
-Does this team look capable of building a serious startup?
+Output rules:
+- Do not output markdown, headings, tables, bullet lists, code fences, or commentary.
+- `missing_roles` and `risks` must be JSON arrays of strings.
+- `fit_score` and `execution_score` must be integers 1-10.
 
 ---
 
