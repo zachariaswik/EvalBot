@@ -1064,14 +1064,14 @@ def export_results(
     """Write pipeline results as JSON files.
     
     Output locations:
-    - Batch mode: output/Batch/
-    - Generate mode: output/Generated/
+    - Batch mode: output/Batch/<batch_id>/
+    - Generate mode: output/Generated/<batch_id>/
     - Single mode: output/<batch_id>/
     """
     if is_batch_mode:
-        out_dir = PROJECT_ROOT / "output" / "Batch"
+        out_dir = PROJECT_ROOT / "output" / "Batch" / batch_id
     elif is_generation:
-        out_dir = PROJECT_ROOT / "output" / "Generated"
+        out_dir = PROJECT_ROOT / "output" / "Generated" / batch_id
     else:
         out_dir = PROJECT_ROOT / "output" / batch_id
     out_dir.mkdir(parents=True, exist_ok=True)
