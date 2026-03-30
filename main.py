@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, get_args, get_origin
 
+import pdfplumber
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -77,6 +78,20 @@ def _extract_startup_name(text: str) -> str:
 def _sanitize_filename(name: str) -> str:
     """Make a string safe for use as a filename."""
     return "".join(c if c.isalnum() or c in " _-" else "_" for c in name).strip()
+
+
+def _extract_text_from_pdf(pdf_path: Path) -> str | None:
+    """Extract text from a PDF file. Return None if extraction fails."""
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            text_parts = []
+            for page in pdf.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text_parts.append(page_text)
+            return "\n\n".join(text_parts) if text_parts else None
+    except Exception:
+        return None
 
 
 AGENT_ROLES = {
@@ -1342,6 +1357,8 @@ def _run_single_agent(
 
 def _parse_generate_args(args: list[str]) -> dict[str, Any]:
     """Parse CLI flags for the generate command into a config dict."""
+    from src.config import BEST_OF_N, ENABLE_HALL_OF_FAME, ENABLE_DIMENSION_REASONING
+    
     config: dict[str, Any] = {
         "team_size": 1,
         "experience": "Founder starting from scratch without any previous experience to help him",
@@ -1354,6 +1371,10 @@ def _parse_generate_args(args: list[str]) -> dict[str, Any]:
         "industry": "Unspecified",
         "rounds": 3,
         "name": None,
+        # Quick Wins optimizations
+        "best_of_n": BEST_OF_N,
+        "enable_hall_of_fame": ENABLE_HALL_OF_FAME,
+        "enable_dimension_reasoning": ENABLE_DIMENSION_REASONING,
     }
 
     i = 0
@@ -1392,6 +1413,19 @@ def _parse_generate_args(args: list[str]) -> dict[str, Any]:
         elif flag == "--name" and i + 1 < len(args):
             config["name"] = args[i + 1]
             i += 2
+        elif flag == "--best-of-n" and i + 1 < len(args):
+            n = int(args[i + 1])
+            if not 1 <= n <= 10:
+                print(f"Warning: --best-of-n must be between 1 and 10, got {n}. Using default.")
+            else:
+                config["best_of_n"] = n
+            i += 2
+        elif flag == "--no-hall-of-fame":
+            config["enable_hall_of_fame"] = False
+            i += 1
+        elif flag == "--no-dimension-reasoning":
+            config["enable_dimension_reasoning"] = False
+            i += 1
         else:
             print(f"Unknown flag: {flag}")
             i += 1
@@ -1863,10 +1897,29 @@ def main() -> None:
         if subdirs:
             # New structure: each subfolder is one startup
             for subdir in subdirs:
-                md_files = sorted(subdir.glob("*.md"))
-                if not md_files:
+                # Accept any text file in the directory
+                all_files = sorted([f for f in subdir.iterdir() if f.is_file() and not f.name.startswith(".")])
+                if not all_files:
                     continue
-                combined = "\n\n".join(f.read_text(encoding="utf-8") for f in md_files)
+                # Read all text/PDF files
+                parts = []
+                for f in all_files:
+                    content = None
+                    # Try PDF extraction first for .pdf files
+                    if f.suffix.lower() == ".pdf":
+                        content = _extract_text_from_pdf(f)
+                    else:
+                        # Try reading as text
+                        try:
+                            content = f.read_text(encoding="utf-8")
+                        except (UnicodeDecodeError, IOError):
+                            # Skip binary files that aren't PDFs
+                            pass
+                    if content:
+                        parts.append(content)
+                if not parts:
+                    continue
+                combined = "\n\n".join(parts)
                 submissions[subdir.name] = combined
         else:
             # Legacy: .md files directly in the folder
@@ -1915,17 +1968,22 @@ def main() -> None:
         print("  python main.py generate [options]  # Generate & evaluate startup ideas")
         print("")
         print("Generate options:")
-        print("  --rounds N          Number of outer loop rounds (default: 3)")
-        print("  --name NAME         Base name for output folders")
-        print("  --team-size N       Team size (default: 1)")
-        print("  --experience TEXT   Founder experience (default: none)")
-        print("  --network TEXT      Founder network (default: none)")
-        print("  --availability PCT  Availability (default: 100%)")
-        print("  --locale TEXT       Location (default: Barcelona, Spain)")
-        print("  --capital TEXT      Capital level (default: Very low)")
-        print("  --traction TEXT     Current traction (default: zero)")
-        print("  --languages TEXT    Languages spoken (default: English)")
-        print("  --industry TEXT     Target industry (default: Unspecified)")
+        print("  --rounds N                  Number of outer loop rounds (default: 3)")
+        print("  --name NAME                 Base name for output folders")
+        print("  --team-size N               Team size (default: 1)")
+        print("  --experience TEXT           Founder experience (default: none)")
+        print("  --network TEXT              Founder network (default: none)")
+        print("  --availability PCT          Availability (default: 100%)")
+        print("  --locale TEXT               Location (default: Barcelona, Spain)")
+        print("  --capital TEXT              Capital level (default: Very low)")
+        print("  --traction TEXT             Current traction (default: zero)")
+        print("  --languages TEXT            Languages spoken (default: English)")
+        print("  --industry TEXT             Target industry (default: Unspecified)")
+        print("")
+        print("Optimization options:")
+        print("  --best-of-n N               Generate N candidates per attempt (default: 3, range: 1-10)")
+        print("  --no-hall-of-fame           Disable hall of fame examples")
+        print("  --no-dimension-reasoning    Disable explicit dimension self-evaluation")
         sys.exit(1)
 
 
