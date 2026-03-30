@@ -5,6 +5,7 @@ from __future__ import annotations
 from enum import Enum
 import json
 import re
+import shutil
 import threading
 import time
 from dataclasses import dataclass, field
@@ -499,14 +500,23 @@ class StartupEvalPipeline:
     def _show_live_counter(self, agent_num: int, stop_event: threading.Event) -> None:
         """Show a live-updating counter at the bottom of output, ticking every second."""
         start = time.time()
+        previous_len = 0
+
+        def _fit_to_terminal(text: str) -> str:
+            cols = shutil.get_terminal_size(fallback=(120, 24)).columns
+            usable = max(20, cols - 1)
+            return text[:usable]
+
         while not stop_event.is_set():
             elapsed = int(time.time() - start)
             mins, secs = divmod(elapsed, 60)
-            # Use \r to overwrite the same line
-            print(f"\r    ⏱ Agent {agent_num} running... {mins}m {secs}s", end="", flush=True)
+            msg = _fit_to_terminal(f"    ⏱ Agent {agent_num} running... {mins}m {secs}s")
+            clear_tail = " " * max(0, previous_len - len(msg))
+            print(f"\r{msg}{clear_tail}", end="", flush=True)
+            previous_len = len(msg)
             time.sleep(1)
         # Clear the line when done
-        print("\r" + " " * 50 + "\r", end="", flush=True)
+        print("\r" + " " * previous_len + "\r", end="", flush=True)
 
     def kickoff(self) -> dict[int, Any]:
         """Core while-loop running agents 1-6 with feedback jumps."""
@@ -753,14 +763,23 @@ def run_single(
 def _show_live_counter_agent7(stop_event: threading.Event) -> None:
     """Show a live-updating counter for Agent 7, ticking every second."""
     start = time.time()
+    previous_len = 0
+
+    def _fit_to_terminal(text: str) -> str:
+        cols = shutil.get_terminal_size(fallback=(120, 24)).columns
+        usable = max(20, cols - 1)
+        return text[:usable]
+
     while not stop_event.is_set():
         elapsed = int(time.time() - start)
         mins, secs = divmod(elapsed, 60)
-        # Use \r to overwrite the same line
-        print(f"\r    ⏱ Agent 7 running... {mins}m {secs}s", end="", flush=True)
+        msg = _fit_to_terminal(f"    ⏱ Agent 7 running... {mins}m {secs}s")
+        clear_tail = " " * max(0, previous_len - len(msg))
+        print(f"\r{msg}{clear_tail}", end="", flush=True)
+        previous_len = len(msg)
         time.sleep(1)
     # Clear the line when done
-    print("\r" + " " * 50 + "\r", end="", flush=True)
+    print("\r" + " " * previous_len + "\r", end="", flush=True)
 
 
 def run_batch(

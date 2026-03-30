@@ -6,6 +6,7 @@ from enum import Enum
 import json
 import os
 import re
+import shutil
 import sys
 import threading
 import time
@@ -1085,6 +1086,14 @@ def _show_agent_timer(
     """Show a live-updating elapsed timer for a running agent."""
     role = AGENT_ROLES.get(agent_number, "Unknown")
     start = time.time()
+    previous_len = 0
+
+    def _fit_to_terminal(text: str) -> str:
+        # Keep the timer on a single terminal row to prevent wrapped "new lines".
+        cols = shutil.get_terminal_size(fallback=(120, 24)).columns
+        usable = max(20, cols - 1)
+        return text[:usable]
+
     while not stop_event.is_set():
         elapsed = int(time.time() - start)
         mins, secs = divmod(elapsed, 60)
@@ -1094,15 +1103,18 @@ def _show_agent_timer(
             round_ctx = f" | Round {current_round}/{total_rounds}"
         if inner_attempt is not None and total_inner_attempts is not None:
             inner_ctx = f" | Inner {inner_attempt}/{total_inner_attempts}"
-            msg = f"    ⏱ Agent {agent_number} ({role}) [{model_name}]{round_ctx}{inner_ctx} ... {mins}m {secs}s"
-            # Pad message to fixed width and use \r to overwrite in-place
-            msg_padded = msg.ljust(160)
-            sys.stdout.write(f"\r{msg_padded}")
-            sys.stdout.flush()
-        time.sleep(1)
-        # Clear the timer line with carriage return
-        sys.stdout.write("\r" + " " * 160 + "\r")
+        msg = f"    ⏱ Agent {agent_number} ({role}) [{model_name}]{round_ctx}{inner_ctx} ... {mins}m {secs}s"
+        msg = _fit_to_terminal(msg)
+        # Overwrite in-place and erase any leftover chars from the previous tick.
+        clear_tail = " " * max(0, previous_len - len(msg))
+        sys.stdout.write(f"\r{msg}{clear_tail}")
         sys.stdout.flush()
+        previous_len = len(msg)
+        time.sleep(1)
+
+    # Clear the timer line once on exit.
+    sys.stdout.write("\r" + " " * previous_len + "\r")
+    sys.stdout.flush()
 
 
 def _run_single_agent(
