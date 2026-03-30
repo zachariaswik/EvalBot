@@ -124,6 +124,32 @@ See `agent_models.md` for detailed model recommendations by provider and cost pr
 - MiniMax doesn't support structured output → falls back to JSON extraction from text
 - Fallback parser (`_extract_json_segment`) handles models that return raw text
 
+### Retry & Fallback System (`src/retry_utils.py`)
+Automatic retry and failover when LLM APIs experience connection issues:
+
+**Configuration** (`src/config.py`):
+- `RETRY_ATTEMPTS`: Number of retries before falling back (default: 3)
+- `RETRY_BASE_DELAY`: Base delay for exponential backoff (default: 2s → 2s, 4s, 8s)
+- `FALLBACK_MODEL`: Model to use when primary fails (default: `anthropic/claude-haiku-4-5`)
+- `RECOVERY_CHECK_INTERVAL`: Successes needed before attempting recovery (default: 3)
+- `RECOVERY_COOLDOWN`: Seconds to wait before trying primary again (default: 60s)
+
+**How it works**:
+1. Agent execution wrapped in `execute_with_retry()`
+2. On connection errors (reset, timeout, 502/503), retries with exponential backoff
+3. After exhausting retries, automatically switches to `FALLBACK_MODEL`
+4. Tracks consecutive successes on fallback
+5. After cooldown + enough successes, attempts recovery to primary model
+6. Silent operation - no error messages during retries, only status updates
+
+**Monitoring**: Check fallback stats in batch processing output:
+```
+📊 Fallback Mode Active
+   Primary: minimax/MiniMax-M2.7 → Fallback: anthropic/claude-haiku-4-5
+   Fallback uses: 3 | Successes: 2/3
+   Cooldown: 15s remaining
+```
+
 ### Quality Gates
 - `CRITICAL_FIELDS`: List of required intake fields (problem, solution, target_customer, market, business_model, team)
 - `QUALITY_GATE_THRESHOLD`: Warn if ≥ this many critical fields are missing (default: 3)
@@ -398,6 +424,189 @@ python main.py single test_minimal.txt
 
 # Check if Agent 2 or 3 requested more info from Agent 1
 sqlite3 evalbot.db "SELECT * FROM feedback_log ORDER BY created_at DESC LIMIT 5;"
+```
+
+## Handling LLM API Errors
+
+The pipeline has automatic retry and fallback mechanisms to handle API failures gracefully.
+
+### Automatic Retry & Fallback
+
+**Connection errors are handled automatically** - no manual intervention needed:
+
+```
+# What happens when MiniMax connection resets:
+[Agent 2 execution]
+  ↻ Retrying... (1/3)        # Silent retry after 2s
+  ↻ Retrying... (2/3)        # Silent retry after 4s
+  ↻ Retrying... (3/3)        # Silent retry after 8s
+  ⚠ Switching to fallback model  # After 3 failed attempts
+  [continues with anthropic/claude-haiku-4-5]
+
+# After 3 successful fallback executions + 60s cooldown:
+  ↻ Attempting recovery to primary model...
+  ✓ Recovered to primary model  # Back to minimax/MiniMax-M2.7
+```
+
+**Configuration**:
+```python
+# src/config.py
+RETRY_ATTEMPTS = 3  # Retries before fallback
+RETRY_BASE_DELAY = 2  # Exponential backoff: 2s, 4s, 8s
+FALLBACK_MODEL = "anthropic/claude-haiku-4-5"  # Reliable fallback
+RECOVERY_CHECK_INTERVAL = 3  # Successes before attempting recovery
+RECOVERY_COOLDOWN = 60  # Seconds to wait before trying primary again
+```
+
+**To disable fallback** (fail immediately on error):
+```python
+FALLBACK_MODEL = None
+```
+
+### Monitoring Fallback Status
+
+During batch processing, fallback stats are shown after each startup:
+
+```
+📊 Fallback Mode Active
+   Primary: minimax/MiniMax-M2.7 → Fallback: anthropic/claude-haiku-4-5
+   Fallback uses: 5 | Successes: 2/3
+   Cooldown: 15s remaining
+```
+
+Query fallback state programmatically:
+```python
+from src.retry_utils import get_fallback_stats
+
+stats = get_fallback_stats()
+# Returns: {
+#   "fallback_active": bool,
+#   "primary_model": str,
+#   "fallback_count": int,
+#   "consecutive_successes": int,
+#   "seconds_since_failure": int
+# }
+```
+
+### Common API Errors (Handled Automatically)
+
+**Connection Reset / Network Errors** ✅ Auto-retried
+```
+litellm.exceptions.APIConnectionError: MinimaxException - [Errno 54] Connection reset by peer
+httpx.ReadError: [Errno 54] Connection reset by peer
+httpcore.ReadError: [Errno 60] Operation timed out
+```
+
+**Timeout Errors** ✅ Auto-retried
+```
+litellm.exceptions.Timeout: Request timed out
+ReadTimeoutError: Read timed out
+```
+
+**Server Errors (502/503/504)** ✅ Auto-retried
+```
+litellm.exceptions.ServiceUnavailableError: 503 Service Unavailable
+```
+
+### Non-Retryable Errors (Raised Immediately)
+
+**Authentication Errors** ❌ Not retried
+```
+litellm.exceptions.APIConnectionError: MinimaxException - [Errno 54] Connection reset by peer
+httpx.ReadError: [Errno 54] Connection reset by peer
+```
+
+- **Cause**: Network instability, provider server issues, or request timeout
+- **Immediate fix**: 
+  ```bash
+  # Check which startup failed
+  sqlite3 evalbot.db "SELECT startup_name, pipeline_status FROM startups WHERE batch_id = 'batch_X' AND pipeline_status != 'completed';"
+  
+  # Restart from failed startup using single mode
+  python main.py single Startups/FailedStartupFolder/
+  ```
+- **Prevention**: 
+  - Increase `LLM_TIMEOUT` in `src/config.py` (default: 600s)
+  - Add retry logic in `src/pipeline.py` around `crew.kickoff()`
+  - Switch to more reliable provider for critical agents
+
+**Rate Limiting**
+**Rate Limiting** ❌ Not retried (but fallback will use different provider)
+```
+litellm.exceptions.RateLimitError: Rate limit exceeded
+```
+- **Cause**: Too many requests to provider API
+- **Fix**: Wait for rate limit reset, or upgrade API tier with provider
+
+### Manual Recovery
+
+If batch processing is interrupted, resume from incomplete startups:
+
+```bash
+# Find incomplete startups
+sqlite3 evalbot.db "SELECT startup_name, pipeline_status FROM startups WHERE batch_id = 'batch_X' AND pipeline_status != 'completed';"
+
+# Process individually
+python main.py single Startups/<FailedStartupName>/
+```
+
+### Adjusting Retry Behavior
+
+**Increase retry patience** (for flaky networks):
+```python
+# src/config.py
+RETRY_ATTEMPTS = 5  # More attempts
+RETRY_BASE_DELAY = 3  # Longer waits: 3s, 9s, 27s
+```
+
+**Faster recovery** (if primary stabilizes quickly):
+```python
+RECOVERY_CHECK_INTERVAL = 2  # Only need 2 successes
+RECOVERY_COOLDOWN = 30  # Try recovery after 30s
+```
+
+**Different fallback model**:
+```python
+FALLBACK_MODEL = "gpt-4.1-mini"  # Use OpenAI instead of Anthropic
+FALLBACK_MODEL = None  # Disable fallback (fail immediately)
+```
+
+### Debugging API Calls
+
+Enable verbose logging:
+```python
+# Add to top of main.py temporarily
+import litellm
+litellm.set_verbose = True  # Prints all API requests/responses
+```
+
+Test provider connectivity:
+```python
+from crewai import LLM
+
+llm = LLM(model="minimax/MiniMax-M2.7", timeout=600)
+response = llm.call([{"role": "user", "content": "Test"}])
+print(response)
+```
+
+### When to Adjust Fallback Settings
+
+**Use case**: MiniMax frequently unstable, want faster recovery
+```python
+RETRY_ATTEMPTS = 2  # Fail faster to fallback
+RECOVERY_COOLDOWN = 120  # Wait longer before retrying primary
+```
+
+**Use case**: Want to avoid fallback costs, prefer failing
+```python
+RETRY_ATTEMPTS = 5  # More attempts on primary
+FALLBACK_MODEL = None  # No fallback, raise error instead
+```
+
+**Use case**: Primary is expensive, fallback is acceptable
+```python
+RECOVERY_CHECK_INTERVAL = 10  # Require 10 successes before recovery
+RECOVERY_COOLDOWN = 300  # Wait 5 minutes
 ```
 
 ## Testing

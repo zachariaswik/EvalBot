@@ -1059,9 +1059,21 @@ def export_results(
     ranking_usage: dict[int, dict] | None = None,
     execution_metrics: dict[str, Any] | None = None,
     is_generation: bool = False,
+    is_batch_mode: bool = False,
 ) -> Path:
-    """Write pipeline results as JSON files to output/<batch_id>/."""
-    out_dir = PROJECT_ROOT / "output" / batch_id
+    """Write pipeline results as JSON files.
+    
+    Output locations:
+    - Batch mode: output/Batch/
+    - Generate mode: output/Generated/
+    - Single mode: output/<batch_id>/
+    """
+    if is_batch_mode:
+        out_dir = PROJECT_ROOT / "output" / "Batch"
+    elif is_generation:
+        out_dir = PROJECT_ROOT / "output" / "Generated"
+    else:
+        out_dir = PROJECT_ROOT / "output" / batch_id
     out_dir.mkdir(parents=True, exist_ok=True)
 
     for startup_name, agent_outputs in individual.items():
@@ -1956,6 +1968,7 @@ def main() -> None:
 
         out_dir = export_results(
             batch_id, result["individual"], result["ranking"], result.get("ranking_usage"),
+            is_batch_mode=True,
         )
         print(f"\nResults saved to: {out_dir}")
 

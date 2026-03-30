@@ -15,7 +15,17 @@ from typing import Any, get_args, get_origin
 from crewai import Crew, Task
 
 from .agents import create_agent
-from .config import CRITICAL_FIELDS, MAX_ITERATIONS, QUALITY_GATE_THRESHOLD, get_model_for_agent
+from .config import (
+    CRITICAL_FIELDS,
+    FALLBACK_MODEL,
+    MAX_ITERATIONS,
+    QUALITY_GATE_THRESHOLD,
+    RECOVERY_CHECK_INTERVAL,
+    RECOVERY_COOLDOWN,
+    RETRY_ATTEMPTS,
+    RETRY_BASE_DELAY,
+    get_model_for_agent,
+)
 from .db import (
     create_batch,
     get_all_batch_outputs,
@@ -27,6 +37,7 @@ from .db import (
     upsert_startup,
 )
 from .models import AGENT_OUTPUT_MODELS, FeedbackMixin
+from .retry_utils import execute_with_retry, get_fallback_stats, reset_fallback_state
 from .tasks import create_ranking_task, create_task
 
 
@@ -589,23 +600,34 @@ class StartupEvalPipeline:
             counter_thread.start()
             
             try:
-                try:
-                    result = crew.kickoff()
-                except Exception as exc:
-                    if _is_instructor_multi_tool_error(exc):
-                        print(
-                            f"\n  ⚠ Structured output failed for Agent {agent_num}; "
-                            "retrying with raw output..."
-                        )
-                        task_fallback = Task(
-                            description=task.description,
-                            expected_output=task.expected_output,
-                            agent=agent,
-                        )
-                        crew_fallback = Crew(agents=[agent], tasks=[task_fallback], verbose=True)
-                        result = crew_fallback.kickoff()
-                    else:
-                        raise
+                # Execute with retry and fallback logic
+                result = execute_with_retry(
+                    func=lambda: crew.kickoff(),
+                    model_name=model_name,
+                    agent_number=agent_num,
+                    silent=True,  # No error messages during retries
+                )
+            except Exception as exc:
+                # Check if this is a structured output error
+                if _is_instructor_multi_tool_error(exc):
+                    print(
+                        f"\n  ⚠ Structured output failed for Agent {agent_num}; "
+                        "retrying with raw output..."
+                    )
+                    task_fallback = Task(
+                        description=task.description,
+                        expected_output=task.expected_output,
+                        agent=agent,
+                    )
+                    crew_fallback = Crew(agents=[agent], tasks=[task_fallback], verbose=True)
+                    result = execute_with_retry(
+                        func=lambda: crew_fallback.kickoff(),
+                        model_name=model_name,
+                        agent_number=agent_num,
+                        silent=True,
+                    )
+                else:
+                    raise
             finally:
                 stop_event.set()
                 counter_thread.join(timeout=2)
@@ -788,6 +810,9 @@ def run_batch(
 ) -> dict:
     """Run agents 1-6 for each startup, then Agent 7 ranking."""
     bid = batch_id
+    
+    # Reset fallback state for new batch
+    reset_fallback_state()
 
     # Run agents 1-6 for each startup
     all_results: dict[str, dict] = {}
@@ -797,6 +822,19 @@ def run_batch(
         print(f"{'#'*60}")
         result = run_single(name, text, batch_id=bid)
         all_results[name] = result
+        
+        # Show fallback stats after each startup
+        stats = get_fallback_stats()
+        if stats["fallback_active"]:
+            print(f"\n  📊 Fallback Mode Active")
+            print(f"     Primary: {stats['primary_model']} → Fallback: {FALLBACK_MODEL}")
+            print(f"     Fallback uses: {stats['fallback_count']} | Successes: {stats['consecutive_successes']}/{RECOVERY_CHECK_INTERVAL}")
+            if stats['seconds_since_failure'] >= RECOVERY_COOLDOWN:
+                print(f"     ✓ Ready for recovery attempt")
+            else:
+                remaining = RECOVERY_COOLDOWN - stats['seconds_since_failure']
+                print(f"     Cooldown: {remaining}s remaining")
+            print()
 
     # Run Agent 7 — ranking across the cohort
     print(f"\n{'#'*60}")
