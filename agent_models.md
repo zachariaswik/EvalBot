@@ -29,7 +29,7 @@ Models are passed to CrewAI via litellm — any litellm-compatible model string 
 
 | Model      | Model string            | Input  | Output  | Notes                            |
 |------------|-------------------------|--------|---------|----------------------------------|
-| MiniMax M2.5 | `minimax/MiniMax-M2.5` | $0.30  | $1.20  | Strong reasoning, very low cost  |
+| MiniMax M2.7 | `minimax/MiniMax-M2.7` | $0.30  | $1.20  | Strong reasoning, very low cost  |
 
 *All prices per 1M tokens.*
 
@@ -116,31 +116,31 @@ AGENT_MODELS: dict[int, str | None] = {
 
 ### MiniMax
 
-M2.5 across the board. Best for rapid iteration and testing when cost needs to
+M2.7 across the board. Best for rapid iteration and testing when cost needs to
 stay minimal. Only requires a `MINIMAX_API_KEY`.
 
 ```python
 AGENT_MODELS: dict[int, str | None] = {
-    0: "minimax/MiniMax-M2.5",                   # Startup Idea Generator (generate mode only)
-    1: "minimax/MiniMax-M2.5",                   # Intake Parser
-    2: "minimax/MiniMax-M2.5",                   # Venture Analyst
-    3: "minimax/MiniMax-M2.5",                   # Market & Competition Analyst
-    4: "minimax/MiniMax-M2.5",                   # Product & Positioning Analyst
-    5: "minimax/MiniMax-M2.5",                   # Founder Fit Analyst
-    6: "minimax/MiniMax-M2.5",                   # Recommendation / Pivot Agent
-    7: "minimax/MiniMax-M2.5",                   # Ranking Committee Agent
+    0: "minimax/MiniMax-M2.7",                   # Startup Idea Generator (generate mode only)
+    1: "minimax/MiniMax-M2.7",                   # Intake Parser
+    2: "minimax/MiniMax-M2.7",                   # Venture Analyst
+    3: "minimax/MiniMax-M2.7",                   # Market & Competition Analyst
+    4: "minimax/MiniMax-M2.7",                   # Product & Positioning Analyst
+    5: "minimax/MiniMax-M2.7",                   # Founder Fit Analyst
+    6: "minimax/MiniMax-M2.7",                   # Recommendation / Pivot Agent
+    7: "minimax/MiniMax-M2.7",                   # Ranking Committee Agent
 }
 ```
 
 | Agent | Model        | ~Input | ~Output | ~Cost   |
 |-------|--------------|--------|---------|---------|
-| 0     | MiniMax M2.5 | 3K     | 4K      | $0.006  |
-| 1     | MiniMax M2.5 | 2K     | 1K      | $0.002  |
-| 2     | MiniMax M2.5 | 5K     | 2K      | $0.004  |
-| 3     | MiniMax M2.5 | 8K     | 2K      | $0.005  |
-| 4     | MiniMax M2.5 | 10K    | 2K      | $0.005  |
-| 5     | MiniMax M2.5 | 12K    | 2K      | $0.006  |
-| 6     | MiniMax M2.5 | 14K    | 2K      | $0.007  |
+| 0     | MiniMax M2.7 | 3K     | 4K      | $0.006  |
+| 1     | MiniMax M2.7 | 2K     | 1K      | $0.002  |
+| 2     | MiniMax M2.7 | 5K     | 2K      | $0.004  |
+| 3     | MiniMax M2.7 | 8K     | 2K      | $0.005  |
+| 4     | MiniMax M2.7 | 10K    | 2K      | $0.005  |
+| 5     | MiniMax M2.7 | 12K    | 2K      | $0.006  |
+| 6     | MiniMax M2.7 | 14K    | 2K      | $0.007  |
 
 **Eval mode** (Agents 1-6 per startup): **~$0.03** | Batch of 10 + ranking: **~$0.35**
 
@@ -167,11 +167,11 @@ AGENT_MODELS: dict[int, str | None] = {
     0: "anthropic/claude-opus-4-6",              # Startup Idea Generator — top-tier creative reasoning
     1: "gpt-4.1-nano",                           # Intake Parser — ultra-cheap extraction
     2: "anthropic/claude-opus-4-6",              # Venture Analyst — best-in-class reasoning
-    3: "minimax/MiniMax-M2.5",                   # Market & Competition — good value reasoning
-    4: "minimax/MiniMax-M2.5",                   # Product & Positioning — good value reasoning
-    5: "minimax/MiniMax-M2.5",                   # Founder Fit — good value reasoning
+    3: "minimax/MiniMax-M2.7",                   # Market & Competition — good value reasoning
+    4: "minimax/MiniMax-M2.7",                   # Product & Positioning — good value reasoning
+    5: "minimax/MiniMax-M2.7",                   # Founder Fit — good value reasoning
     6: "anthropic/claude-opus-4-6",              # Recommendation — best strategic synthesis
-    7: "minimax/MiniMax-M2.5",                   # Ranking Committee — structured comparison
+    7: "minimax/MiniMax-M2.7",                   # Ranking Committee — structured comparison
 }
 ```
 
@@ -180,9 +180,9 @@ AGENT_MODELS: dict[int, str | None] = {
 | 0     | Opus 4.6     | 3K     | 4K      | $0.345  |
 | 1     | GPT-4.1 nano | 2K     | 1K      | $0.001  |
 | 2     | Opus 4.6     | 5K     | 2K      | $0.225  |
-| 3     | MiniMax M2.5 | 8K     | 2K      | $0.005  |
-| 4     | MiniMax M2.5 | 10K    | 2K      | $0.005  |
-| 5     | MiniMax M2.5 | 12K    | 2K      | $0.006  |
+| 3     | MiniMax M2.7 | 8K     | 2K      | $0.005  |
+| 4     | MiniMax M2.7 | 10K    | 2K      | $0.005  |
+| 5     | MiniMax M2.7 | 12K    | 2K      | $0.006  |
 | 6     | Opus 4.6     | 14K    | 2K      | $0.360  |
 
 **Eval mode** (Agents 1-6 per startup): **~$0.60** | Batch of 10 + ranking: **~$6.10**
@@ -206,11 +206,11 @@ AGENT_MODELS: dict[int, str | None] = {
     0: "anthropic/claude-sonnet-4-6",            # Startup Idea Generator — strong creative reasoning
     1: "gpt-4.1-nano",                           # Intake Parser — ultra-cheap extraction
     2: "anthropic/claude-sonnet-4-6",            # Venture Analyst — strong analytical depth
-    3: "minimax/MiniMax-M2.5",                   # Market & Competition — good value reasoning
-    4: "minimax/MiniMax-M2.5",                   # Product & Positioning — good value reasoning
-    5: "minimax/MiniMax-M2.5",                   # Founder Fit — good value reasoning
+    3: "minimax/MiniMax-M2.7",                   # Market & Competition — good value reasoning
+    4: "minimax/MiniMax-M2.7",                   # Product & Positioning — good value reasoning
+    5: "minimax/MiniMax-M2.7",                   # Founder Fit — good value reasoning
     6: "anthropic/claude-sonnet-4-6",            # Recommendation — solid strategic synthesis
-    7: "minimax/MiniMax-M2.5",                   # Ranking Committee — structured comparison
+    7: "minimax/MiniMax-M2.7",                   # Ranking Committee — structured comparison
 }
 ```
 
@@ -219,9 +219,9 @@ AGENT_MODELS: dict[int, str | None] = {
 | 0     | Sonnet 4.6   | 3K     | 4K      | $0.069  |
 | 1     | GPT-4.1 nano | 2K     | 1K      | $0.001  |
 | 2     | Sonnet 4.6   | 5K     | 2K      | $0.045  |
-| 3     | MiniMax M2.5 | 8K     | 2K      | $0.005  |
-| 4     | MiniMax M2.5 | 10K    | 2K      | $0.005  |
-| 5     | MiniMax M2.5 | 12K    | 2K      | $0.006  |
+| 3     | MiniMax M2.7 | 8K     | 2K      | $0.005  |
+| 4     | MiniMax M2.7 | 10K    | 2K      | $0.005  |
+| 5     | MiniMax M2.7 | 12K    | 2K      | $0.006  |
 | 6     | Sonnet 4.6   | 14K    | 2K      | $0.072  |
 
 **Eval mode** (Agents 1-6 per startup): **~$0.13** | Batch of 10 + ranking: **~$1.40**
