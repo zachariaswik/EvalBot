@@ -498,6 +498,7 @@ class PipelineState:
     iteration: int = 0
     agent_outputs: dict[int, Any] = field(default_factory=dict)
     completed: bool = False
+    pipeline_start_time: float = 0.0
 
 
 class StartupEvalPipeline:
@@ -519,9 +520,11 @@ class StartupEvalPipeline:
             return text[:usable]
 
         while not stop_event.is_set():
-            elapsed = int(time.time() - start)
-            mins, secs = divmod(elapsed, 60)
-            msg = _fit_to_terminal(f"    ⏱ Agent {agent_num} running for {self.state.startup_name}... {mins}m {secs}s")
+            agent_elapsed = int(time.time() - start)
+            agent_mins, agent_secs = divmod(agent_elapsed, 60)
+            total_elapsed = int(time.time() - self.state.pipeline_start_time)
+            total_mins, total_secs = divmod(total_elapsed, 60)
+            msg = _fit_to_terminal(f"    ⏱ Agent {agent_num} running for {self.state.startup_name}... {agent_mins}m {agent_secs}s | Total: {total_mins}m {total_secs}s")
             clear_tail = " " * max(0, previous_len - len(msg))
             print(f"\r{msg}{clear_tail}", end="", flush=True)
             previous_len = len(msg)
@@ -543,6 +546,7 @@ class StartupEvalPipeline:
         # Track feedback reason and rerun flag
         pending_feedback_reason: str | None = None
         pending_is_rerun: bool = False
+        self.state.pipeline_start_time = time.time()
         start_time = datetime.now()
         agent_timings: dict[int, float] = {}  # Track per-agent execution time
         agent_usage: dict[int, dict] = {}  # Track per-agent token usage
