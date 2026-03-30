@@ -12,6 +12,9 @@
 # Pipeline output (JSON results)
 output/
 
+# Log files
+*.log
+
 # Startup submissions (confidential data)
 Startups/
 
