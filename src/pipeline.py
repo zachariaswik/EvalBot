@@ -510,7 +510,7 @@ class StartupEvalPipeline:
         while not stop_event.is_set():
             elapsed = int(time.time() - start)
             mins, secs = divmod(elapsed, 60)
-            msg = _fit_to_terminal(f"    ⏱ Agent {agent_num} running... {mins}m {secs}s")
+            msg = _fit_to_terminal(f"    ⏱ Agent {agent_num} running for {self.state.startup_name}... {mins}m {secs}s")
             clear_tail = " " * max(0, previous_len - len(msg))
             print(f"\r{msg}{clear_tail}", end="", flush=True)
             previous_len = len(msg)
