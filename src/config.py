@@ -14,6 +14,25 @@ CRITICAL_FIELDS = ["problem", "solution", "target_customer", "market", "business
 QUALITY_GATE_THRESHOLD = 3  # Warn if >= this many critical fields are missing
 
 # ---------------------------------------------------------------------------
+# Quick Wins Optimization Configuration
+# ---------------------------------------------------------------------------
+
+# Best-of-N Sampling: Generate N candidate ideas per inner-loop attempt
+# and select the highest-scoring one. N=1 disables this feature (original behavior).
+# Higher N improves quality but increases API costs linearly.
+BEST_OF_N = 3  # Valid range: 1-10
+
+# Hall of Fame: Maintain a library of top-scoring ideas to guide Agent 0
+# with concrete examples of what "great" looks like.
+ENABLE_HALL_OF_FAME = True
+HALL_OF_FAME_SIZE = 5  # Maximum number of ideas to keep
+HALL_OF_FAME_MIN_SCORE = 60  # Minimum weighted score (0-80) to enter hall of fame
+
+# Explicit Dimension Reasoning: Force Agent 0 to self-evaluate on each
+# scoring dimension before submission. Helps catch oversights.
+ENABLE_DIMENSION_REASONING = True
+
+# ---------------------------------------------------------------------------
 # LLM Configuration
 # ---------------------------------------------------------------------------
 # Supported model string formats (CrewAI uses litellm under the hood):
@@ -54,6 +73,27 @@ AGENT_MODELS: dict[int, str | None] = {
     6: "minimax/MiniMax-M2.7",                   # Recommendation / Pivot Agent
     7: "minimax/MiniMax-M2.7",                   # Ranking Committee Agent
 }
+
+# ---------------------------------------------------------------------------
+# Retry & Fallback Configuration
+# ---------------------------------------------------------------------------
+# Automatic retry and fallback when primary model fails (e.g., connection errors)
+
+# Number of retry attempts before falling back to secondary model
+RETRY_ATTEMPTS = 3
+
+# Delay between retries (seconds). Uses exponential backoff: 2, 4, 8, ...
+RETRY_BASE_DELAY = 2
+
+# Fallback model to use when primary model fails after retries
+# Set to None to disable fallback (will raise error instead)
+FALLBACK_MODEL = "anthropic/claude-haiku-4-5"  # Cheap, fast, reliable
+
+# After this many successful fallback executions, try switching back to primary
+RECOVERY_CHECK_INTERVAL = 3
+
+# Cooldown period (seconds) before attempting to switch back to primary model
+RECOVERY_COOLDOWN = 60
 
 
 def get_model_for_agent(agent_number: int, is_rerun: bool = False) -> str:
