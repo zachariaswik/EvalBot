@@ -26,4 +26,6 @@ __pycache__/
 
 # Mini-Agent directories (local development)
 Mini-Agent/
-.Python
+
+# Agent memory files (session state)
+.agent_memory.json
