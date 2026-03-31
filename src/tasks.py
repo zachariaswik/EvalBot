@@ -131,8 +131,11 @@ def create_task(
     }
     
     # Add input_files if we have PDFs
+    # CrewAI expects input_files as dict[str, Any], not list
     if pdf_paths:
-        task_params["input_files"] = pdf_paths
+        task_params["input_files"] = {
+            f"document_{i}": path for i, path in enumerate(pdf_paths)
+        }
     
     return Task(**task_params)
 
