@@ -17,6 +17,16 @@ class Agent0Output(BaseModel):
     one_line_description: str = Field(description="One-line description of the startup")
     submission_text: str = Field(description="Full generated startup submission")
     strategy_notes: str = Field(default="", description="Internal reasoning on why this should score well")
+    
+    # Explicit Dimension Reasoning - Self-evaluation before submission
+    # Helps catch oversights and improves idea quality
+    dimension_reasoning: dict[str, dict[str, float | str]] = Field(
+        default_factory=dict,
+        description=(
+            "Self-evaluation on each scoring dimension. "
+            "Keys are dimension names, values are dicts with 'self_score' (1-10) and 'reasoning' (str)."
+        )
+    )
 
 
 class FeedbackMixin(BaseModel):
