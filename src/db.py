@@ -203,16 +203,42 @@ def get_current_outputs(
     startup_name: str,
     db_path: Path | None = None,
 ) -> dict[int, dict]:
-    """Return {agent_number: parsed_json} for all current outputs."""
+    """Return {agent_number: parsed_json} for all current outputs.
+    
+    Falls back to non-current records if the current record has corrupted raw_output.
+    """
     conn = _connect(db_path)
     rows = conn.execute(
-        "SELECT agent_number, output_json FROM agent_outputs "
-        "WHERE batch_id = ? AND startup_name = ? AND is_current = 1 "
-        "ORDER BY agent_number",
+        "SELECT agent_number, output_json, is_current FROM agent_outputs "
+        "WHERE batch_id = ? AND startup_name = ? "
+        "ORDER BY is_current DESC, created_at DESC",
         (batch_id, startup_name),
     ).fetchall()
     conn.close()
-    return {row["agent_number"]: json.loads(row["output_json"]) for row in rows}
+    
+    result: dict[int, dict] = {}
+    for row in rows:
+        agent_num = row["agent_number"]
+        if agent_num in result:
+            continue  # Already have this agent, prefer current
+        
+        top_level_parsed = json.loads(row["output_json"])
+        
+        # Check if we have raw_output that needs inner parsing
+        if "raw_output" in top_level_parsed:
+            raw = top_level_parsed["raw_output"]
+            if isinstance(raw, str):
+                try:
+                    result[agent_num] = json.loads(raw)
+                    continue
+                except json.JSONDecodeError:
+                    # raw_output JSON is corrupted, skip this record
+                    # (will fall through to next record for same agent if exists)
+                    continue
+        
+        result[agent_num] = top_level_parsed
+    
+    return result
 
 
 def get_all_batch_outputs(batch_id: str, db_path: Path | None = None) -> list[dict]:

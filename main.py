@@ -74,7 +74,7 @@ def _next_generated_id() -> str:
 
 def _next_batch_id() -> str:
     """Return the next sequential batch ID (batch_1, batch_2, ...)."""
-    output_dir = PROJECT_ROOT / "output"
+    output_dir = PROJECT_ROOT / "output" / "Batch"
     if not output_dir.exists():
         return "batch_1"
     existing = [
@@ -913,16 +913,27 @@ def _fmt_list(items: list | str | None, bullet: str = "- ") -> str:
     return "\n".join(f"{bullet}{item}" for item in items)
 
 
+def _parse_raw_output(d: dict) -> dict:
+    """Parse raw_output JSON string if present, otherwise return dict as-is."""
+    raw = d.get("raw_output")
+    if raw and isinstance(raw, str):
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return d  # Return original if not valid JSON
+    return d
+
+
 def _write_startup_report(
     startup_name: str, agent_outputs: dict[int | str, Any], path: Path
 ) -> None:
     """Write a human-readable markdown report for a single startup."""
     a0 = agent_outputs.get(0) or agent_outputs.get("0") or {}
-    a1 = agent_outputs.get(1) or agent_outputs.get("1") or {}
+    a1 = _parse_raw_output(agent_outputs.get(1) or agent_outputs.get("1") or {})
     a2 = agent_outputs.get(2) or agent_outputs.get("2") or {}
     a3 = agent_outputs.get(3) or agent_outputs.get("3") or {}
     a4 = agent_outputs.get(4) or agent_outputs.get("4") or {}
-    a5 = agent_outputs.get(5) or agent_outputs.get("5") or {}
+    a5 = _parse_raw_output(agent_outputs.get(5) or agent_outputs.get("5") or {})
     a6 = agent_outputs.get(6) or agent_outputs.get("6") or {}
     tags = agent_outputs.get("_tags") or []
     gen_meta = agent_outputs.get("_gen_meta") or {}
