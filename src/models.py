@@ -17,6 +17,16 @@ class Agent0Output(BaseModel):
     one_line_description: str = Field(description="One-line description of the startup")
     submission_text: str = Field(description="Full generated startup submission")
     strategy_notes: str = Field(default="", description="Internal reasoning on why this should score well")
+    
+    # Explicit Dimension Reasoning - Self-evaluation before submission
+    # Helps catch oversights and improves idea quality
+    dimension_reasoning: dict[str, dict[str, float | str]] = Field(
+        default_factory=dict,
+        description=(
+            "Self-evaluation on each scoring dimension. "
+            "Keys are dimension names, values are dicts with 'self_score' (1-10) and 'reasoning' (str)."
+        )
+    )
 
 
 class FeedbackMixin(BaseModel):
@@ -224,16 +234,37 @@ class RankedStartup(BaseModel):
     summary: str = Field(description="One-line summary of the startup's evaluation")
 
 
+class CategorizedStartup(BaseModel):
+    """A startup with rationale for its category placement."""
+    name: str = Field(description="Startup name (with founder name if available)")
+    rationale: str = Field(description="Brief explanation for why this startup belongs in this category")
+
+
 class Agent7Output(BaseModel):
     ranked_startups: list[RankedStartup] = Field(description="All startups ranked")
-    top_vc_candidates: list[str] = Field(default_factory=list)
-    promising_need_focus: list[str] = Field(default_factory=list)
-    promising_need_pivot: list[str] = Field(default_factory=list)
-    good_small_businesses: list[str] = Field(default_factory=list)
-    weak_ideas: list[str] = Field(default_factory=list)
+    top_vc_candidates: list[CategorizedStartup] = Field(
+        default_factory=list,
+        description="Startups with venture-scale potential. Each startup should appear in ONLY ONE category."
+    )
+    promising_need_focus: list[CategorizedStartup] = Field(
+        default_factory=list,
+        description="Promising startups that need to narrow their focus. Each startup should appear in ONLY ONE category."
+    )
+    promising_need_pivot: list[CategorizedStartup] = Field(
+        default_factory=list,
+        description="Startups that need strategic pivot. Each startup should appear in ONLY ONE category."
+    )
+    good_small_businesses: list[CategorizedStartup] = Field(
+        default_factory=list,
+        description="Solid businesses unlikely to reach venture scale. Each startup should appear in ONLY ONE category."
+    )
+    weak_ideas: list[CategorizedStartup] = Field(
+        default_factory=list,
+        description="Ideas with fundamental issues. Each startup should appear in ONLY ONE category."
+    )
     common_patterns: list[str] = Field(default_factory=list, description="Most common idea patterns")
     interesting_themes: list[str] = Field(default_factory=list, description="Most interesting themes")
-    shortlist: list[str] = Field(default_factory=list, description="Recommended shortlist for interviews")
+    shortlist: list[str] = Field(default_factory=list, description="Recommended shortlist for interviews (names only)")
 
 
 # ---------------------------------------------------------------------------

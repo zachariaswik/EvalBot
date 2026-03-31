@@ -12,6 +12,10 @@
 # Pipeline output (JSON results)
 output/
 
+
+# Log files
+*.log
+
 # Startup submissions (confidential data)
 Startups/
 
@@ -20,4 +24,9 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
-.Python
+
+# Mini-Agent directories (local development)
+Mini-Agent/
+
+# Agent memory files (session state)
+.agent_memory.json

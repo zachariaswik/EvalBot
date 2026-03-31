@@ -15,18 +15,30 @@ from typing import Any, get_args, get_origin
 from crewai import Crew, Task
 
 from .agents import create_agent
-from .config import CRITICAL_FIELDS, MAX_ITERATIONS, QUALITY_GATE_THRESHOLD, get_model_for_agent
+from .config import (
+    CRITICAL_FIELDS,
+    FALLBACK_MODEL,
+    MAX_ITERATIONS,
+    QUALITY_GATE_THRESHOLD,
+    RECOVERY_CHECK_INTERVAL,
+    RECOVERY_COOLDOWN,
+    RETRY_ATTEMPTS,
+    RETRY_BASE_DELAY,
+    get_model_for_agent,
+)
 from .db import (
     create_batch,
     get_all_batch_outputs,
     init_db,
     invalidate_outputs_from,
     log_feedback,
+    log_retry_event,
     store_agent_output,
     update_startup_status,
     upsert_startup,
 )
 from .models import AGENT_OUTPUT_MODELS, FeedbackMixin
+from .retry_utils import execute_with_retry, get_fallback_stats, reset_fallback_state, StartupTimeoutError
 from .tasks import create_ranking_task, create_task
 
 
@@ -487,6 +499,7 @@ class PipelineState:
     iteration: int = 0
     agent_outputs: dict[int, Any] = field(default_factory=dict)
     completed: bool = False
+    pipeline_start_time: float = 0.0
 
 
 class StartupEvalPipeline:
@@ -497,10 +510,13 @@ class StartupEvalPipeline:
             batch_id=batch_id,
         )
 
-    def _show_live_counter(self, agent_num: int, stop_event: threading.Event) -> None:
+    def _show_live_counter(self, agent_num: int, model_name: str, stop_event: threading.Event) -> None:
         """Show a live-updating counter at the bottom of output, ticking every second."""
         start = time.time()
         previous_len = 0
+        
+        # Extract short model name for display (e.g., "MiniMax-M2.7" or "Haiku")
+        short_model = model_name.split("/")[-1] if "/" in model_name else model_name
 
         def _fit_to_terminal(text: str) -> str:
             cols = shutil.get_terminal_size(fallback=(120, 24)).columns
@@ -508,9 +524,12 @@ class StartupEvalPipeline:
             return text[:usable]
 
         while not stop_event.is_set():
-            elapsed = int(time.time() - start)
-            mins, secs = divmod(elapsed, 60)
-            msg = _fit_to_terminal(f"    ⏱ Agent {agent_num} running for {self.state.startup_name}... {mins}m {secs}s")
+
+            agent_elapsed = int(time.time() - start)
+            agent_mins, agent_secs = divmod(agent_elapsed, 60)
+            total_elapsed = int(time.time() - self.state.pipeline_start_time)
+            total_mins, total_secs = divmod(total_elapsed, 60)
+            msg = _fit_to_terminal(f"    ⏱ Agent {agent_num} [{short_model}] for {self.state.startup_name}... {agent_mins}m {agent_secs}s | Total: {total_mins}m {total_secs}s")
             clear_tail = " " * max(0, previous_len - len(msg))
             print(f"\r{msg}{clear_tail}", end="", flush=True)
             previous_len = len(msg)
@@ -532,6 +551,7 @@ class StartupEvalPipeline:
         # Track feedback reason and rerun flag
         pending_feedback_reason: str | None = None
         pending_is_rerun: bool = False
+        self.state.pipeline_start_time = time.time()
         start_time = datetime.now()
         agent_timings: dict[int, float] = {}  # Track per-agent execution time
         agent_usage: dict[int, dict] = {}  # Track per-agent token usage
@@ -583,29 +603,71 @@ class StartupEvalPipeline:
             agent_start = time.time()
             counter_thread = threading.Thread(
                 target=self._show_live_counter,
-                args=(agent_num, stop_event),
+                args=(agent_num, model_name, stop_event),
                 daemon=True
             )
             counter_thread.start()
             
             try:
-                try:
-                    result = crew.kickoff()
-                except Exception as exc:
-                    if _is_instructor_multi_tool_error(exc):
-                        print(
-                            f"\n  ⚠ Structured output failed for Agent {agent_num}; "
-                            "retrying with raw output..."
+                # Execute with retry and fallback logic
+                retry_result = execute_with_retry(
+                    func=lambda: crew.kickoff(),
+                    model_name=model_name,
+                    agent_number=agent_num,
+                    silent=True,  # No error messages during retries
+                )
+                result = retry_result["result"]
+                
+                # Log retry event if any retries or fallback occurred
+                if retry_result["retry_count"] > 0 or retry_result["fallback_occurred"] or retry_result["recovery_occurred"]:
+                    log_retry_event(
+                        batch_id=self.state.batch_id,
+                        startup_name=self.state.startup_name,
+                        agent_number=agent_num,
+                        intended_model=retry_result["intended_model"],
+                        actual_model=retry_result["actual_model"],
+                        retry_count=retry_result["retry_count"],
+                        fallback_occurred=retry_result["fallback_occurred"],
+                        recovery_occurred=retry_result["recovery_occurred"],
+                        error_type=retry_result["error_type"],
+                    )
+                
+            except Exception as exc:
+                # Check if this is a structured output error
+                if _is_instructor_multi_tool_error(exc):
+                    print(
+                        f"\n  ⚠ Structured output failed for Agent {agent_num}; "
+                        "retrying with raw output..."
+                    )
+                    task_fallback = Task(
+                        description=task.description,
+                        expected_output=task.expected_output,
+                        agent=agent,
+                    )
+                    crew_fallback = Crew(agents=[agent], tasks=[task_fallback], verbose=True)
+                    retry_result = execute_with_retry(
+                        func=lambda: crew_fallback.kickoff(),
+                        model_name=model_name,
+                        agent_number=agent_num,
+                        silent=True,
+                    )
+                    result = retry_result["result"]
+                    
+                    # Log retry event
+                    if retry_result["retry_count"] > 0 or retry_result["fallback_occurred"] or retry_result["recovery_occurred"]:
+                        log_retry_event(
+                            batch_id=self.state.batch_id,
+                            startup_name=self.state.startup_name,
+                            agent_number=agent_num,
+                            intended_model=retry_result["intended_model"],
+                            actual_model=retry_result["actual_model"],
+                            retry_count=retry_result["retry_count"],
+                            fallback_occurred=retry_result["fallback_occurred"],
+                            recovery_occurred=retry_result["recovery_occurred"],
+                            error_type=retry_result["error_type"],
                         )
-                        task_fallback = Task(
-                            description=task.description,
-                            expected_output=task.expected_output,
-                            agent=agent,
-                        )
-                        crew_fallback = Crew(agents=[agent], tasks=[task_fallback], verbose=True)
-                        result = crew_fallback.kickoff()
-                    else:
-                        raise
+                else:
+                    raise
             finally:
                 stop_event.set()
                 counter_thread.join(timeout=2)
@@ -616,13 +678,17 @@ class StartupEvalPipeline:
             mins, secs = divmod(int(agent_duration), 60)
             print(f"  ✓ Agent {agent_num} completed in {mins}m {secs}s")
 
-            # Capture token usage
+            # Capture token usage with actual model used (may differ from intended if fallback)
             usage = result.token_usage
+            actual_model_used = retry_result.get("actual_model", model_name)
             agent_usage[agent_num] = {
-                "model": model_name,
+                "model": actual_model_used,  # Use actual model (fallback if occurred)
+                "intended_model": model_name,  # Original intended model
                 "prompt_tokens": getattr(usage, "prompt_tokens", 0),
                 "completion_tokens": getattr(usage, "completion_tokens", 0),
                 "total_tokens": getattr(usage, "total_tokens", 0),
+                "fallback_occurred": retry_result.get("fallback_occurred", False),
+                "retry_count": retry_result.get("retry_count", 0),
             }
 
             # Extract Pydantic output
@@ -760,10 +826,13 @@ def run_single(
     return pipeline.kickoff()
 
 
-def _show_live_counter_agent7(stop_event: threading.Event) -> None:
+def _show_live_counter_agent7(model_name: str, stop_event: threading.Event) -> None:
     """Show a live-updating counter for Agent 7, ticking every second."""
     start = time.time()
     previous_len = 0
+    
+    # Extract short model name for display
+    short_model = model_name.split("/")[-1] if "/" in model_name else model_name
 
     def _fit_to_terminal(text: str) -> str:
         cols = shutil.get_terminal_size(fallback=(120, 24)).columns
@@ -773,7 +842,7 @@ def _show_live_counter_agent7(stop_event: threading.Event) -> None:
     while not stop_event.is_set():
         elapsed = int(time.time() - start)
         mins, secs = divmod(elapsed, 60)
-        msg = _fit_to_terminal(f"    ⏱ Agent 7 running... {mins}m {secs}s")
+        msg = _fit_to_terminal(f"    ⏱ Agent 7 [{short_model}] ranking... {mins}m {secs}s")
         clear_tail = " " * max(0, previous_len - len(msg))
         print(f"\r{msg}{clear_tail}", end="", flush=True)
         previous_len = len(msg)
@@ -788,6 +857,9 @@ def run_batch(
 ) -> dict:
     """Run agents 1-6 for each startup, then Agent 7 ranking."""
     bid = batch_id
+    
+    # Reset fallback state for new batch
+    reset_fallback_state()
 
     # Run agents 1-6 for each startup
     all_results: dict[str, dict] = {}
@@ -795,8 +867,37 @@ def run_batch(
         print(f"\n{'#'*60}")
         print(f"  Processing: {name}")
         print(f"{'#'*60}")
-        result = run_single(name, text, batch_id=bid)
-        all_results[name] = result
+        
+        try:
+            result = run_single(name, text, batch_id=bid)
+            all_results[name] = result
+        except StartupTimeoutError as e:
+            # Startup exceeded total time budget - save error and continue to next
+            print(f"\n  ⏰ STARTUP TIMEOUT: {e.message}")
+            print(f"  Saving error state and continuing to next startup...")
+            
+            # Store error state in DB so it can be displayed to user
+            error_output = {
+                "error": "startup_timeout",
+                "message": e.message,
+                "elapsed_seconds": int(e.elapsed),
+                "limit_seconds": int(e.limit),
+            }
+            all_results[name] = error_output
+            continue
+        
+        # Show fallback stats after each startup
+        stats = get_fallback_stats()
+        if stats["fallback_active"]:
+            print(f"\n  📊 Fallback Mode Active")
+            print(f"     Primary: {stats['primary_model']} → Fallback: {FALLBACK_MODEL}")
+            print(f"     Fallback uses: {stats['fallback_count']} | Successes: {stats['consecutive_successes']}/{RECOVERY_CHECK_INTERVAL}")
+            if stats['seconds_since_failure'] >= RECOVERY_COOLDOWN:
+                print(f"     ✓ Ready for recovery attempt")
+            else:
+                remaining = RECOVERY_COOLDOWN - stats['seconds_since_failure']
+                print(f"     Cooldown: {remaining}s remaining")
+            print()
 
     # Run Agent 7 — ranking across the cohort
     print(f"\n{'#'*60}")
@@ -828,7 +929,7 @@ def run_batch(
     agent_start = time.time()
     counter_thread = threading.Thread(
         target=_show_live_counter_agent7,
-        args=(stop_event,),
+        args=(model_name_7, stop_event),
         daemon=True
     )
     counter_thread.start()

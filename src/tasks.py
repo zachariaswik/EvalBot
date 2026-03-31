@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import re
+from pathlib import Path
 from typing import Any
 
 from crewai import Agent, Task
@@ -56,6 +58,13 @@ def _json_only_instruction(agent_number: int) -> str:
     )
 
 
+def _extract_pdf_paths(text: str) -> list[str]:
+    """Extract PDF file paths from [PDF_FILE: ...] markers in text."""
+    pattern = r'\[PDF_FILE:\s*([^\]]+)\]'
+    matches = re.findall(pattern, text)
+    return [m.strip() for m in matches]
+
+
 def _build_description(
     agent_number: int,
     submission_text: str,
@@ -102,17 +111,33 @@ def create_task(
     prior_context: dict[int, Any] | None = None,
     feedback_reason: str | None = None,
 ) -> Task:
-    """Create a CrewAI Task for the given agent with structured Pydantic output."""
+    """Create a CrewAI Task for the given agent with structured Pydantic output.
+    
+    For Agent 1, if submission_text contains [PDF_FILE: ...] markers, extracts
+    the PDF paths and passes them via the input_files parameter for direct reading.
+    """
     description = _build_description(agent_number, submission_text, prior_context, feedback_reason)
     description += _json_only_instruction(agent_number)
     output_model = AGENT_OUTPUT_MODELS[agent_number]
-
-    return Task(
-        description=description,
-        expected_output=_EXPECTED_OUTPUT[agent_number],
-        agent=agent,
-        output_pydantic=output_model,
-    )
+    
+    # Extract PDF file paths if present (Agent 1 can read PDFs directly)
+    pdf_paths = _extract_pdf_paths(submission_text) if agent_number == 1 else []
+    
+    task_params = {
+        "description": description,
+        "expected_output": _EXPECTED_OUTPUT[agent_number],
+        "agent": agent,
+        "output_pydantic": output_model,
+    }
+    
+    # Add input_files if we have PDFs
+    # CrewAI expects input_files as dict[str, Any], not list
+    if pdf_paths:
+        task_params["input_files"] = {
+            f"document_{i}": path for i, path in enumerate(pdf_paths)
+        }
+    
+    return Task(**task_params)
 
 
 def create_agent0_task(
@@ -124,6 +149,9 @@ def create_agent0_task(
     round_number: int = 1,
     attempt_number: int = 1,
     force_completely_new_idea: bool = False,
+    hall_of_fame_examples: list[dict] | None = None,
+    enable_dimension_reasoning: bool = True,
+    enable_hall_of_fame: bool = True,
 ) -> Task:
     """Create a task for Agent 0 — Startup Idea Generator.
 
@@ -136,6 +164,9 @@ def create_agent0_task(
         round_number: Current outer-loop round (1-based).
         attempt_number: Current inner-loop attempt (1-based).
         force_completely_new_idea: If true, require a fresh idea trajectory.
+        hall_of_fame_examples: Top-scoring examples from Hall of Fame to guide generation.
+        enable_dimension_reasoning: Enable self-evaluation on scoring dimensions.
+        enable_hall_of_fame: Enable Hall of Fame examples in prompt.
     """
     parts: list[str] = []
 
@@ -243,6 +274,48 @@ def create_agent0_task(
         "- Include at least one clear competitor/alternative in Competitors.\n"
         "- If traction is pre-launch, still provide a realistic traction plan or early evidence.\n"
     )
+
+    # Hall of Fame Examples - Top-scoring ideas to guide generation
+    if enable_hall_of_fame and hall_of_fame_examples:
+        parts.append(
+            "\n\n📚 HALL OF FAME EXAMPLES - Top-Scoring Startup Ideas:\n"
+            "The following are examples of successful startup ideas that scored well.\n"
+            "Use these as inspiration for what 'great' looks like.\n\n"
+        )
+        for i, example in enumerate(hall_of_fame_examples, 1):
+            a0 = example.get("agent0_output", {})
+            a2 = example.get("agent2_output", {})
+            parts.append(f"--- Example {i} (Score: {example.get('weighted_score', 'N/A')}/80) ---")
+            parts.append(f"Name: {a0.get('startup_name', 'Unknown')}")
+            parts.append(f"One-line: {a0.get('one_line_description', 'N/A')}")
+            parts.append(f"Problem: {a0.get('submission_text', '')[:200]}...")
+            parts.append(f"Verdict: {a2.get('verdict', 'N/A')}")
+            parts.append("")
+        
+        parts.append(
+            "\n💡 Use these examples as inspiration for what makes a strong startup idea.\n"
+            "Learn from their approach to problem, solution, market, and differentiation.\n"
+        )
+
+    # Explicit Dimension Reasoning - Force self-evaluation before submission
+    # This helps catch oversights and improves idea quality
+    if enable_dimension_reasoning:
+        parts.append(
+            "\n\nSELF-EVALUATION REQUIREMENT (DIMENSION REASONING):\n"
+            "Before finalizing your submission, evaluate your idea on each dimension below.\n"
+            "Provide a self-score (1-10) and brief reasoning for each. Be honest and critical.\n"
+            "This self-evaluation helps you catch weaknesses before submission.\n\n"
+            "Dimensions to evaluate:\n"
+            "- problem_severity: How severe is the problem? Is it a real pain point?\n"
+            "- market_size: How large is the target market? Is it venture-scale?\n"
+            "- differentiation: How unique is the solution? What's the wedge?\n"
+            "- customer_clarity: How clear is the target customer? Who pays?\n"
+            "- founder_insight: How deep is the founder's understanding of the problem?\n"
+            "- business_model: How will the startup make money? Is it sustainable?\n"
+            "- moat_potential: What protects against competitors? Any unfair advantage?\n"
+            "- venture_potential: Is this venture-scale? Could it become a billion-dollar company?\n\n"
+            "Include your self-evaluation in the `dimension_reasoning` field of your output.\n"
+        )
 
     description = "\n".join(parts) + _json_only_instruction(0)
 
