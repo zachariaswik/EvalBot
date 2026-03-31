@@ -65,7 +65,7 @@ RERUN_MODEL: str | None = None
 # None means "use DEFAULT_MODEL".
 AGENT_MODELS: dict[int, str | None] = {
     0: "minimax/MiniMax-M2.7",                   # Startup Idea Generator (generate mode only)
-    1: "minimax/MiniMax-M2.7",                   # Intake Parser
+    1: "anthropic/claude-sonnet-4-6",            # Intake Parser
     2: "minimax/MiniMax-M2.7",                   # Venture Analyst
     3: "minimax/MiniMax-M2.7",                   # Market & Competition Analyst
     4: "minimax/MiniMax-M2.7",                   # Product & Positioning Analyst

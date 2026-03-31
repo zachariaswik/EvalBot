@@ -14,7 +14,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, get_args, get_origin
 
-import pdfplumber
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -114,18 +113,9 @@ def _sanitize_filename(name: str) -> str:
     return "".join(c if c.isalnum() or c in " _-" else "_" for c in name).strip()
 
 
-def _extract_text_from_pdf(pdf_path: Path) -> str | None:
-    """Extract text from a PDF file. Return None if extraction fails."""
-    try:
-        with pdfplumber.open(pdf_path) as pdf:
-            text_parts = []
-            for page in pdf.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    text_parts.append(page_text)
-            return "\n\n".join(text_parts) if text_parts else None
-    except Exception:
-        return None
+def _get_pdf_reference(pdf_path: Path) -> str:
+    """Return a file reference marker for PDF that Agent 1 (Claude) can process directly."""
+    return f"[PDF_FILE: {pdf_path.absolute()}]"
 
 
 AGENT_ROLES = {
@@ -2336,9 +2326,9 @@ def main() -> None:
                 parts = []
                 for f in all_files:
                     content = None
-                    # Try PDF extraction first for .pdf files
+                    # Pass PDF files directly to Agent 1 (Claude can read them natively)
                     if f.suffix.lower() == ".pdf":
-                        content = _extract_text_from_pdf(f)
+                        content = _get_pdf_reference(f)
                     elif f.suffix.lower() == ".docx":
                         # Extract text from Word documents
                         try:

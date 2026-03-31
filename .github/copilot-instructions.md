@@ -9,7 +9,7 @@ EvalBot is a CrewAI-based system for evaluating early-stage startup submissions 
 # Use Python 3.13 or earlier (CrewAI stack incompatible with 3.14+)
 python -m venv .venv313
 source .venv313/bin/activate  # or .venv313\Scripts\activate on Windows
-pip install -r requirements.txt  # if it exists, otherwise install crewai, litellm, pydantic, pdfplumber
+pip install -r requirements.txt  # if it exists, otherwise install crewai, litellm, pydantic
 
 # Set up API keys in .env
 ANTHROPIC_API_KEY=your_key_here
@@ -45,6 +45,8 @@ The system uses **8 specialized agents** that run sequentially:
    - Converts raw submissions into standardized JSON structure
    - Extracts: problem, solution, market, team, competitors, traction, etc.
    - Flags missing/inconsistent information
+   - **PDF Support**: Can read PDF documents directly (uses Claude Sonnet 4.6's native PDF vision)
+   - No pre-processing needed — PDFs passed via CrewAI's `input_files` parameter
 
 2. **Venture Analyst** (Agent 2) — Very high reasoning complexity
    - Core scoring agent: evaluates 10 dimensions (1-10 scale each)

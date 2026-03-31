@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import re
+from pathlib import Path
 from typing import Any
 
 from crewai import Agent, Task
@@ -56,6 +58,13 @@ def _json_only_instruction(agent_number: int) -> str:
     )
 
 
+def _extract_pdf_paths(text: str) -> list[str]:
+    """Extract PDF file paths from [PDF_FILE: ...] markers in text."""
+    pattern = r'\[PDF_FILE:\s*([^\]]+)\]'
+    matches = re.findall(pattern, text)
+    return [m.strip() for m in matches]
+
+
 def _build_description(
     agent_number: int,
     submission_text: str,
@@ -102,17 +111,30 @@ def create_task(
     prior_context: dict[int, Any] | None = None,
     feedback_reason: str | None = None,
 ) -> Task:
-    """Create a CrewAI Task for the given agent with structured Pydantic output."""
+    """Create a CrewAI Task for the given agent with structured Pydantic output.
+    
+    For Agent 1, if submission_text contains [PDF_FILE: ...] markers, extracts
+    the PDF paths and passes them via the input_files parameter for direct reading.
+    """
     description = _build_description(agent_number, submission_text, prior_context, feedback_reason)
     description += _json_only_instruction(agent_number)
     output_model = AGENT_OUTPUT_MODELS[agent_number]
-
-    return Task(
-        description=description,
-        expected_output=_EXPECTED_OUTPUT[agent_number],
-        agent=agent,
-        output_pydantic=output_model,
-    )
+    
+    # Extract PDF file paths if present (Agent 1 can read PDFs directly)
+    pdf_paths = _extract_pdf_paths(submission_text) if agent_number == 1 else []
+    
+    task_params = {
+        "description": description,
+        "expected_output": _EXPECTED_OUTPUT[agent_number],
+        "agent": agent,
+        "output_pydantic": output_model,
+    }
+    
+    # Add input_files if we have PDFs
+    if pdf_paths:
+        task_params["input_files"] = pdf_paths
+    
+    return Task(**task_params)
 
 
 def create_agent0_task(
