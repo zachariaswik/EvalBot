@@ -22,8 +22,10 @@ MINIMAX_API_KEY=your_key_here
 # Process default CourseDocs submission
 python main.py
 
-# Process a single startup submission (text or PDF)
+# Process a single startup submission (text, PDF, or DOCX)
 python main.py single <path/to/submission.txt>
+python main.py single <path/to/pitch.pdf>
+python main.py single <path/to/deck.docx>
 
 # Process a batch of startups from a directory
 python main.py batch <path/to/startups_folder>
@@ -46,7 +48,9 @@ The system uses **8 specialized agents** that run sequentially:
    - Extracts: problem, solution, market, team, competitors, traction, etc.
    - Flags missing/inconsistent information
    - **PDF Support**: Can read PDF documents directly (uses Claude Sonnet 4.6's native PDF vision)
-   - No pre-processing needed — PDFs passed via CrewAI's `input_files` parameter
+   - **DOCX Support**: Extracts text and tables (metrics, financials, competitive data)
+   - No PDF pre-processing needed — PDFs passed via CrewAI's `input_files` parameter
+   - DOCX tables containing TAM, revenue, team size, etc. are properly extracted
 
 2. **Venture Analyst** (Agent 2) — Very high reasoning complexity
    - Core scoring agent: evaluates 10 dimensions (1-10 scale each)

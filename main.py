@@ -118,6 +118,55 @@ def _get_pdf_reference(pdf_path: Path) -> str:
     return f"[PDF_FILE: {pdf_path.absolute()}]"
 
 
+def _extract_text_from_docx(docx_path: Path) -> str | None:
+    """Extract text and tables from DOCX file, preserving document order.
+    
+    Extracts:
+    - All paragraph text
+    - All tables (formatted as pipe-separated rows)
+    - Content in document order (paragraphs and tables intermixed)
+    
+    Does NOT extract:
+    - Images (stored as separate binary files)
+    - Headers/footers (in separate XML files)
+    - Complex formatting (bold, italics, colors)
+    
+    Returns None if extraction fails.
+    """
+    try:
+        import docx
+        doc = docx.Document(docx_path)
+        parts = []
+        
+        # Process all body elements in document order
+        # This preserves the natural flow of paragraphs and tables
+        for element in doc.element.body:
+            # Paragraph element
+            if element.tag.endswith('p'):
+                for para in doc.paragraphs:
+                    if para._element == element:
+                        text = para.text.strip()
+                        if text:
+                            parts.append(text)
+                        break
+            
+            # Table element
+            elif element.tag.endswith('tbl'):
+                for table in doc.tables:
+                    if table._element == element:
+                        # Format table as pipe-separated rows
+                        for row in table.rows:
+                            row_text = " | ".join(cell.text.strip() for cell in row.cells)
+                            if row_text.strip():  # Skip empty rows
+                                parts.append(row_text)
+                        parts.append("")  # Blank line after table
+                        break
+        
+        return "\n".join(parts) if parts else None
+    except Exception:
+        return None
+
+
 AGENT_ROLES = {
     0: "Startup Idea Generator",
     1: "Intake Parser",
@@ -2330,20 +2379,16 @@ def main() -> None:
                     if f.suffix.lower() == ".pdf":
                         content = _get_pdf_reference(f)
                     elif f.suffix.lower() == ".docx":
-                        # Extract text from Word documents
-                        try:
-                            import docx
-                            doc = docx.Document(f)
-                            paragraphs = [p.text for p in doc.paragraphs]
-                            content = "\n\n".join(paragraphs)
-                        except Exception as e:
-                            print(f"    ⚠ Could not read {f.name}: {e}")
+                        # Extract text and tables from Word documents
+                        content = _extract_text_from_docx(f)
+                        if content is None:
+                            print(f"    ⚠ Could not extract content from {f.name}")
                     else:
                         # Try reading as text
                         try:
                             content = f.read_text(encoding="utf-8")
                         except (UnicodeDecodeError, IOError):
-                            # Skip binary files that aren't PDFs
+                            # Skip binary files that aren't PDFs/DOCX
                             pass
                     if content:
                         parts.append(content)
