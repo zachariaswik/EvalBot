@@ -23,4 +23,7 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+
+# Mini-Agent directories (local development)
+Mini-Agent/
 .Python
