@@ -43,6 +43,10 @@ Output rules:
 - `ranked_startups` must be an array of objects with keys: `name`, `label`, `rank`, `score`, `summary`.
 - `label` must be exactly one of: VC-Scale, Needs Pivot, Small Business, Feature, Wrapper, Reject.
 - `rank` must be an integer and `score` must be numeric.
+- `top_vc_candidates`, `promising_need_focus`, `promising_need_pivot`, `good_small_businesses`, `weak_ideas` must be arrays of objects with keys: `name`, `rationale`.
+- **CRITICAL: Each startup must appear in EXACTLY ONE category. No duplicates across categories.**
+- `common_patterns` and `interesting_themes` must be arrays of strings.
+- `shortlist` must be an array of startup names (strings only).
 
 ---
 
