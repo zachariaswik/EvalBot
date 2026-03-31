@@ -65,6 +65,23 @@ CREATE TABLE IF NOT EXISTS hall_of_fame (
 
 CREATE INDEX IF NOT EXISTS idx_hall_of_fame_score ON hall_of_fame(weighted_score DESC);
 CREATE INDEX IF NOT EXISTS idx_hall_of_fame_created ON hall_of_fame(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS retry_log (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id            TEXT NOT NULL,
+    startup_name        TEXT NOT NULL,
+    agent_number        INTEGER NOT NULL,
+    intended_model      TEXT NOT NULL,
+    actual_model        TEXT NOT NULL,
+    retry_count         INTEGER NOT NULL DEFAULT 0,
+    fallback_occurred   INTEGER NOT NULL DEFAULT 0,
+    recovery_occurred   INTEGER NOT NULL DEFAULT 0,
+    error_type          TEXT,
+    created_at          TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_retry_log_batch ON retry_log(batch_id);
+CREATE INDEX IF NOT EXISTS idx_retry_log_startup ON retry_log(batch_id, startup_name);
 """
 
 
@@ -435,3 +452,114 @@ def log_feedback(
     )
     conn.commit()
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Retry & Fallback Logging
+# ---------------------------------------------------------------------------
+
+def log_retry_event(
+    batch_id: str,
+    startup_name: str,
+    agent_number: int,
+    intended_model: str,
+    actual_model: str,
+    retry_count: int,
+    fallback_occurred: bool,
+    recovery_occurred: bool,
+    error_type: str | None = None,
+    db_path: Path | None = None,
+) -> None:
+    """Log a retry/fallback event for an agent execution."""
+    conn = _connect(db_path)
+    conn.execute(
+        "INSERT INTO retry_log "
+        "(batch_id, startup_name, agent_number, intended_model, actual_model, "
+        "retry_count, fallback_occurred, recovery_occurred, error_type, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            batch_id,
+            startup_name,
+            agent_number,
+            intended_model,
+            actual_model,
+            retry_count,
+            1 if fallback_occurred else 0,
+            1 if recovery_occurred else 0,
+            error_type,
+            _now(),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_retry_stats(batch_id: str, db_path: Path | None = None) -> dict[str, Any]:
+    """Get retry/fallback statistics for a batch."""
+    conn = _connect(db_path)
+    
+    # Overall stats
+    overall = conn.execute(
+        "SELECT "
+        "  COUNT(*) as total_events, "
+        "  SUM(fallback_occurred) as fallback_count, "
+        "  SUM(recovery_occurred) as recovery_count, "
+        "  SUM(retry_count) as total_retries, "
+        "  AVG(retry_count) as avg_retries "
+        "FROM retry_log "
+        "WHERE batch_id = ?",
+        (batch_id,),
+    ).fetchone()
+    
+    # Per-agent breakdown
+    per_agent = conn.execute(
+        "SELECT "
+        "  agent_number, "
+        "  COUNT(*) as events, "
+        "  SUM(fallback_occurred) as fallbacks, "
+        "  SUM(recovery_occurred) as recoveries, "
+        "  SUM(retry_count) as total_retries, "
+        "  intended_model, "
+        "  actual_model "
+        "FROM retry_log "
+        "WHERE batch_id = ? "
+        "GROUP BY agent_number, intended_model, actual_model "
+        "ORDER BY agent_number",
+        (batch_id,),
+    ).fetchall()
+    
+    # Error type breakdown
+    error_types = conn.execute(
+        "SELECT error_type, COUNT(*) as count "
+        "FROM retry_log "
+        "WHERE batch_id = ? AND error_type IS NOT NULL "
+        "GROUP BY error_type "
+        "ORDER BY count DESC",
+        (batch_id,),
+    ).fetchall()
+    
+    conn.close()
+    
+    return {
+        "total_events": overall["total_events"],
+        "fallback_count": overall["fallback_count"] or 0,
+        "recovery_count": overall["recovery_count"] or 0,
+        "total_retries": overall["total_retries"] or 0,
+        "avg_retries": overall["avg_retries"] or 0.0,
+        "per_agent": [
+            {
+                "agent_number": row["agent_number"],
+                "events": row["events"],
+                "fallbacks": row["fallbacks"] or 0,
+                "recoveries": row["recoveries"] or 0,
+                "total_retries": row["total_retries"] or 0,
+                "intended_model": row["intended_model"],
+                "actual_model": row["actual_model"],
+            }
+            for row in per_agent
+        ],
+        "error_types": [
+            {"error_type": row["error_type"], "count": row["count"]}
+            for row in error_types
+        ],
+    }

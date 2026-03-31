@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from src.docs import load_submission
+from src.db import get_retry_stats
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 
@@ -754,6 +755,8 @@ def _write_batch_summary(
     """Write batch/generation summary with model table and token/cost breakdown."""
     # Aggregate usage across all startups per agent
     aggregated: dict[int, dict] = {}
+    fallback_counts: dict[int, int] = {}  # Track number of times each agent used fallback
+    
     for _name, outputs in individual.items():
         usage_data = outputs.get("_usage", {})
         for agent_num, info in usage_data.items():
@@ -765,9 +768,15 @@ def _write_batch_summary(
                     "completion_tokens": 0,
                     "total_tokens": 0,
                 }
+                fallback_counts[agent_num] = 0
+            
             aggregated[agent_num]["prompt_tokens"] += info["prompt_tokens"]
             aggregated[agent_num]["completion_tokens"] += info["completion_tokens"]
             aggregated[agent_num]["total_tokens"] += info["total_tokens"]
+            
+            # Track fallback occurrences
+            if info.get("fallback_occurred"):
+                fallback_counts[agent_num] += 1
 
     # Add Agent 7 usage if present
     if ranking_usage:
@@ -781,6 +790,44 @@ def _write_batch_summary(
             }
 
     lines = [f"# Batch Summary — {batch_id}", ""]
+    
+    # Retry & Fallback Statistics
+    retry_stats = get_retry_stats(batch_id)
+    if retry_stats["total_events"] > 0:
+        lines.append("## API Retry & Fallback Summary")
+        lines.append("")
+        lines.append(f"**Total Retry Events**: {retry_stats['total_events']}")
+        lines.append(f"**Fallback Events**: {retry_stats['fallback_count']}")
+        lines.append(f"**Recovery Events**: {retry_stats['recovery_count']}")
+        lines.append(f"**Total Retries**: {retry_stats['total_retries']}")
+        lines.append(f"**Average Retries per Event**: {retry_stats['avg_retries']:.1f}")
+        lines.append("")
+        
+        if retry_stats["per_agent"]:
+            lines.append("### Per-Agent Breakdown")
+            lines.append("")
+            lines.append("| Agent | Events | Fallbacks | Recoveries | Total Retries | Intended → Actual Model |")
+            lines.append("|-------|--------|-----------|------------|---------------|-------------------------|")
+            for agent_stat in retry_stats["per_agent"]:
+                agent_num = agent_stat["agent_number"]
+                events = agent_stat["events"]
+                fallbacks = agent_stat["fallbacks"]
+                recoveries = agent_stat["recoveries"]
+                total_retries = agent_stat["total_retries"]
+                intended = agent_stat["intended_model"]
+                actual = agent_stat["actual_model"]
+                model_change = f"{intended} → {actual}" if intended != actual else intended
+                lines.append(
+                    f"| {agent_num}     | {events}      | {fallbacks}         | {recoveries}          | {total_retries}             | {model_change} |"
+                )
+            lines.append("")
+        
+        if retry_stats["error_types"]:
+            lines.append("### Error Types")
+            lines.append("")
+            for error_stat in retry_stats["error_types"]:
+                lines.append(f"- **{error_stat['error_type']}**: {error_stat['count']} occurrences")
+            lines.append("")
     
     # Execution Summary
     if execution_metrics:
@@ -818,12 +865,18 @@ def _write_batch_summary(
     # Models table
     lines.append("## Models Used")
     lines.append("")
-    lines.append("| Agent | Role                           | Model                              |")
-    lines.append("|-------|--------------------------------|------------------------------------|")
+    lines.append("| Agent | Role                           | Model                              | Notes |")
+    lines.append("|-------|--------------------------------|------------------------------------|-------|")
     for agent_num in sorted(aggregated.keys()):
         role = AGENT_ROLES.get(agent_num, "Unknown")
         model = aggregated[agent_num]["model"]
-        lines.append(f"| {agent_num}     | {role:<30} | {model:<34} |")
+        
+        # Add fallback indicator if this agent used fallback
+        notes = ""
+        if fallback_counts.get(agent_num, 0) > 0:
+            notes = f"⚠️ Fallback used {fallback_counts[agent_num]}x"
+        
+        lines.append(f"| {agent_num}     | {role:<30} | {model:<34} | {notes} |")
     lines.append("")
 
     # Token usage & cost table
