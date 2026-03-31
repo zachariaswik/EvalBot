@@ -86,8 +86,17 @@ RETRY_ATTEMPTS = 3
 RETRY_BASE_DELAY = 2
 
 # Fallback model to use when primary model fails after retries
+# Can be a single model string or a dict mapping agent_number → fallback model
 # Set to None to disable fallback (will raise error instead)
-FALLBACK_MODEL = "anthropic/claude-haiku-4-5"  # Cheap, fast, reliable
+FALLBACK_MODEL = "anthropic/claude-haiku-4-5"  # Global default (cheap, fast, reliable)
+
+# Per-agent fallback overrides. Agents not listed use FALLBACK_MODEL above.
+# Agents 0, 2, 6 need higher reasoning quality when MiniMax fails.
+AGENT_FALLBACK_MODELS: dict[int, str] = {
+    0: "anthropic/claude-sonnet-4-6",  # Idea Generator - needs strong reasoning
+    2: "anthropic/claude-sonnet-4-6",  # Venture Analyst - critical scoring decisions
+    6: "anthropic/claude-sonnet-4-6",  # Recommendations - strategic synthesis
+}
 
 # After this many successful fallback executions, try switching back to primary
 RECOVERY_CHECK_INTERVAL = 3
@@ -107,3 +116,13 @@ def get_model_for_agent(agent_number: int, is_rerun: bool = False) -> str:
     if is_rerun and RERUN_MODEL:
         return RERUN_MODEL
     return AGENT_MODELS.get(agent_number) or DEFAULT_MODEL
+
+
+def get_fallback_model_for_agent(agent_number: int) -> str:
+    """Resolve which fallback model to use for a given agent.
+
+    Priority order:
+    1. AGENT_FALLBACK_MODELS[agent_number] (per-agent fallback override)
+    2. FALLBACK_MODEL (global fallback)
+    """
+    return AGENT_FALLBACK_MODELS.get(agent_number) or FALLBACK_MODEL

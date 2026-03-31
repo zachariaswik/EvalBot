@@ -234,16 +234,37 @@ class RankedStartup(BaseModel):
     summary: str = Field(description="One-line summary of the startup's evaluation")
 
 
+class CategorizedStartup(BaseModel):
+    """A startup with rationale for its category placement."""
+    name: str = Field(description="Startup name (with founder name if available)")
+    rationale: str = Field(description="Brief explanation for why this startup belongs in this category")
+
+
 class Agent7Output(BaseModel):
     ranked_startups: list[RankedStartup] = Field(description="All startups ranked")
-    top_vc_candidates: list[str] = Field(default_factory=list)
-    promising_need_focus: list[str] = Field(default_factory=list)
-    promising_need_pivot: list[str] = Field(default_factory=list)
-    good_small_businesses: list[str] = Field(default_factory=list)
-    weak_ideas: list[str] = Field(default_factory=list)
+    top_vc_candidates: list[CategorizedStartup] = Field(
+        default_factory=list,
+        description="Startups with venture-scale potential. Each startup should appear in ONLY ONE category."
+    )
+    promising_need_focus: list[CategorizedStartup] = Field(
+        default_factory=list,
+        description="Promising startups that need to narrow their focus. Each startup should appear in ONLY ONE category."
+    )
+    promising_need_pivot: list[CategorizedStartup] = Field(
+        default_factory=list,
+        description="Startups that need strategic pivot. Each startup should appear in ONLY ONE category."
+    )
+    good_small_businesses: list[CategorizedStartup] = Field(
+        default_factory=list,
+        description="Solid businesses unlikely to reach venture scale. Each startup should appear in ONLY ONE category."
+    )
+    weak_ideas: list[CategorizedStartup] = Field(
+        default_factory=list,
+        description="Ideas with fundamental issues. Each startup should appear in ONLY ONE category."
+    )
     common_patterns: list[str] = Field(default_factory=list, description="Most common idea patterns")
     interesting_themes: list[str] = Field(default_factory=list, description="Most interesting themes")
-    shortlist: list[str] = Field(default_factory=list, description="Recommended shortlist for interviews")
+    shortlist: list[str] = Field(default_factory=list, description="Recommended shortlist for interviews (names only)")
 
 
 # ---------------------------------------------------------------------------

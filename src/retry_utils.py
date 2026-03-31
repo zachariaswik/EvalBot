@@ -12,6 +12,7 @@ from .config import (
     RECOVERY_COOLDOWN,
     RETRY_ATTEMPTS,
     RETRY_BASE_DELAY,
+    get_fallback_model_for_agent,
 )
 
 
@@ -72,6 +73,9 @@ def execute_with_retry(
     """
     global _fallback_state
     
+    # Get the appropriate fallback model for this agent
+    fallback_model = get_fallback_model_for_agent(agent_number)
+    
     # Determine which model to use
     if should_attempt_recovery():
         attempt_model = _fallback_state.primary_model
@@ -79,7 +83,7 @@ def execute_with_retry(
         if not silent:
             print(f"    ↻ Attempting recovery to primary model...")
     elif _fallback_state.active:
-        attempt_model = FALLBACK_MODEL
+        attempt_model = fallback_model
         recovery_attempt = False
     else:
         attempt_model = model_name
@@ -115,7 +119,7 @@ def execute_with_retry(
                 for err in [
                     "connection", "reset", "timeout", "timed out",
                     "502", "503", "504", "errno 54", "errno 60",
-                    "apiconnectionerror", "readtimeout"
+                    "apiconnectionerror", "readtimeout", "invalid response"
                 ]
             )
             
@@ -134,9 +138,9 @@ def execute_with_retry(
                 break
     
     # All retries failed - try fallback if available
-    if FALLBACK_MODEL and not recovery_attempt and attempt_model != FALLBACK_MODEL:
+    if fallback_model and not recovery_attempt and attempt_model != fallback_model:
         if not silent:
-            print(f"    ⚠ Switching to fallback model ({FALLBACK_MODEL})")
+            print(f"    ⚠ Switching to fallback model ({fallback_model})")
         
         # Activate fallback state
         if not _fallback_state.active:
