@@ -2429,14 +2429,37 @@ def main() -> None:
 
         submissions: dict[str, str] = {}
         subdirs = sorted([d for d in folder.iterdir() if d.is_dir() and not d.name.startswith(".")])
+        
+        def read_file_content(f: Path) -> str:
+            """Read text content from various file types."""
+            ext = f.suffix.lower()
+            if ext == '.md' or ext == '.txt':
+                return f.read_text(encoding="utf-8", errors="replace")
+            elif ext == '.docx':
+                from docx import Document
+                doc = Document(f)
+                return "\n".join([p.text for p in doc.paragraphs])
+            elif ext == '.pdf':
+                from PyPDF2 import PdfReader
+                try:
+                    reader = PdfReader(f)
+                    return "\n".join([page.extract_text() or "" for page in reader.pages])
+                except Exception:
+                    return ""
+            else:
+                return f.read_text(encoding="utf-8", errors="replace")
+        
         if subdirs:
             # New structure: each subfolder is one startup
             for subdir in subdirs:
-                # Accept any text file in the directory
-                all_files = sorted([f for f in subdir.iterdir() if f.is_file() and not f.name.startswith(".")])
+                # Accept .md, .txt, .docx, .pdf files
+                allowed_exts = {'.md', '.txt', '.docx', '.pdf'}
+                all_files = sorted([f for f in subdir.iterdir() 
+                                   if f.is_file() and not f.name.startswith(".")
+                                   and f.suffix.lower() in allowed_exts])
                 if not all_files:
                     continue
-                combined = "\n\n".join(f.read_text(encoding="utf-8") for f in md_files)
+                combined = "\n\n".join(read_file_content(f) for f in all_files)
                 submissions[subdir.name] = combined
         else:
             # Legacy: .md files directly in the folder
