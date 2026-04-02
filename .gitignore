@@ -30,3 +30,6 @@ Mini-Agent/
 
 # Agent memory files (session state)
 .agent_memory.json
+testStartups/
+credentials.json
+startup_docs/
