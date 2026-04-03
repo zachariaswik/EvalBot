@@ -12,18 +12,21 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, get_args, get_origin
 
-from crewai import Crew, Task
+from crewai import Crew, LLM, Task
 
 from .agents import create_agent
+
 from .config import (
     CRITICAL_FIELDS,
     FALLBACK_MODEL,
+    LLM_TIMEOUT,
     MAX_ITERATIONS,
     QUALITY_GATE_THRESHOLD,
     RECOVERY_CHECK_INTERVAL,
     RECOVERY_COOLDOWN,
     RETRY_ATTEMPTS,
     RETRY_BASE_DELAY,
+    get_fallback_model_for_agent,
     get_model_for_agent,
 )
 from .db import (
@@ -38,7 +41,7 @@ from .db import (
     upsert_startup,
 )
 from .models import AGENT_OUTPUT_MODELS, FeedbackMixin
-from .retry_utils import execute_with_retry, get_fallback_stats, reset_fallback_state, StartupTimeoutError
+from .retry_utils import execute_with_retry, get_fallback_stats, reset_fallback_state, reset_startup_timer, StartupTimeoutError
 from .tasks import create_ranking_task, create_task
 
 
@@ -594,10 +597,33 @@ class StartupEvalPipeline:
                     agent=agent,
                 )
 
-            # Run single-agent crew with live counter
+            # Build primary crew
             crew = Crew(agents=[agent], tasks=[task], verbose=True)
+
+            # Build fallback crew (different model) for timeout / connection-error fallback
+            fb_model_name = get_fallback_model_for_agent(agent_num)
+            if fb_model_name != model_name:
+                fb_agent = create_agent(agent_num, llm=LLM(model=fb_model_name, timeout=LLM_TIMEOUT), is_rerun=is_rerun)
+                fb_task = create_task(
+                    agent_number=agent_num,
+                    agent=fb_agent,
+                    submission_text=self.state.submission_text,
+                    prior_context=prior_context if agent_num > 1 else None,
+                    feedback_reason=feedback_reason,
+                )
+                if not _supports_structured_output(fb_model_name):
+                    fb_task = Task(
+                        description=fb_task.description,
+                        expected_output=fb_task.expected_output,
+                        agent=fb_agent,
+                    )
+                fb_crew = Crew(agents=[fb_agent], tasks=[fb_task], verbose=True)
+                fallback_func = lambda _c=fb_crew: _c.kickoff()
+            else:
+                fallback_func = None
+
             print(f"  ⏱ Agent {agent_num} starting at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-            
+
             # Start live counter thread
             stop_event = threading.Event()
             agent_start = time.time()
@@ -607,17 +633,18 @@ class StartupEvalPipeline:
                 daemon=True
             )
             counter_thread.start()
-            
+
             try:
                 # Execute with retry and fallback logic
                 retry_result = execute_with_retry(
                     func=lambda: crew.kickoff(),
                     model_name=model_name,
                     agent_number=agent_num,
-                    silent=True,  # No error messages during retries
+                    silent=True,
+                    fallback_func=fallback_func,
                 )
                 result = retry_result["result"]
-                
+
                 # Log retry event if any retries or fallback occurred
                 if retry_result["retry_count"] > 0 or retry_result["fallback_occurred"] or retry_result["recovery_occurred"]:
                     log_retry_event(
@@ -631,7 +658,7 @@ class StartupEvalPipeline:
                         recovery_occurred=retry_result["recovery_occurred"],
                         error_type=retry_result["error_type"],
                     )
-                
+
             except Exception as exc:
                 # Check if this is a structured output error
                 if _is_instructor_multi_tool_error(exc):
@@ -650,9 +677,10 @@ class StartupEvalPipeline:
                         model_name=model_name,
                         agent_number=agent_num,
                         silent=True,
+                        fallback_func=fallback_func,
                     )
                     result = retry_result["result"]
-                    
+
                     # Log retry event
                     if retry_result["retry_count"] > 0 or retry_result["fallback_occurred"] or retry_result["recovery_occurred"]:
                         log_retry_event(
@@ -863,20 +891,24 @@ def run_batch(
 
     # Run agents 1-6 for each startup
     all_results: dict[str, dict] = {}
+    failed_startups: list[str] = []
     for name, text in submissions.items():
         print(f"\n{'#'*60}")
         print(f"  Processing: {name}")
         print(f"{'#'*60}")
-        
+
+        # Reset per-startup timer so TOTAL_STARTUP_TIMEOUT is per-startup
+        reset_startup_timer()
+
         try:
             result = run_single(name, text, batch_id=bid)
             all_results[name] = result
         except StartupTimeoutError as e:
-            # Startup exceeded total time budget - save error and continue to next
+            # Startup exceeded total time budget — mark as failed and continue
             print(f"\n  ⏰ STARTUP TIMEOUT: {e.message}")
-            print(f"  Saving error state and continuing to next startup...")
-            
-            # Store error state in DB so it can be displayed to user
+            print(f"  Marking as FAILED — re-run this startup later.")
+
+            # Store error state so the user knows which ones to re-run
             error_output = {
                 "error": "startup_timeout",
                 "message": e.message,
@@ -884,6 +916,10 @@ def run_batch(
                 "limit_seconds": int(e.limit),
             }
             all_results[name] = error_output
+            failed_startups.append(name)
+
+            # Mark as failed in DB (not "completed")
+            update_startup_status(bid, name, "failed")
             continue
         
         # Show fallback stats after each startup
@@ -993,4 +1029,18 @@ def run_batch(
         iteration=1,
     )
 
-    return {"individual": all_results, "ranking": ranking_output, "ranking_usage": agent7_usage}
+    # Print summary of failed startups so the user knows what to re-run
+    if failed_startups:
+        print(f"\n{'!'*60}")
+        print(f"  ⚠ {len(failed_startups)} startup(s) FAILED (timed out):")
+        for fs in failed_startups:
+            print(f"     - {fs}")
+        print(f"  Re-run these startups individually later.")
+        print(f"{'!'*60}\n")
+
+    return {
+        "individual": all_results,
+        "ranking": ranking_output,
+        "ranking_usage": agent7_usage,
+        "failed_startups": failed_startups,
+    }

@@ -47,7 +47,7 @@ ENABLE_DIMENSION_REASONING = True
 # ---------------------------------------------------------------------------
 
 # Default model — used when no per-agent override is set
-DEFAULT_MODEL = "anthropic/claude-haiku-4-5"
+DEFAULT_MODEL = "openai/gpt-4o-mini"
 
 # Context window size for Ollama models (default 4096 is too small for our prompts).
 # Only applies to ollama/ models. Set to 0 to use the model's default.
@@ -60,13 +60,12 @@ OLLAMA_NUM_CTX = 16384
 LLM_TIMEOUT = None  # No timeout - slow-but-working calls complete naturally
 
 # Hard timeout in seconds for each agent's total execution. Set to None to disable.
-# Safety net for truly runaway agents (e.g., infinite loops without LLM calls).
-AGENT_TIMEOUT = 300  # 5 minutes
+# If an agent exceeds this limit, the pipeline falls back to gpt-4o-mini or gpt-4o.
+AGENT_TIMEOUT = 420  # 7 minutes
 
 # Total wall-clock time budget for processing one startup across all agents.
-# After this limit, the startup is marked as failed and an error is saved.
-# Max time: ~15 min (allows 3 retries on MiniMax + 3 retries on Haiku)
-TOTAL_STARTUP_TIMEOUT = 900  # 15 minutes
+# After this limit, the startup is marked as failed and stored for re-running.
+TOTAL_STARTUP_TIMEOUT = 960  # 16 minutes
 
 # Model used for re-runs (when a downstream agent triggers a re-run of an
 # earlier agent). Set to None to reuse the same model the agent normally uses.
@@ -76,13 +75,13 @@ RERUN_MODEL: str | None = None
 # None means "use DEFAULT_MODEL".
 AGENT_MODELS: dict[int, str | None] = {
     0: "minimax/MiniMax-M2.7",                   # Startup Idea Generator (generate mode only)
-    1: "anthropic/claude-sonnet-4-6",            # Intake Parser
-    2: "minimax/MiniMax-M2.7",                   # Venture Analyst
-    3: "minimax/MiniMax-M2.7",                   # Market & Competition Analyst
-    4: "minimax/MiniMax-M2.7",                   # Product & Positioning Analyst
-    5: "minimax/MiniMax-M2.7",                   # Founder Fit Analyst
-    6: "minimax/MiniMax-M2.7",                   # Recommendation / Pivot Agent
-    7: "minimax/MiniMax-M2.7",                   # Ranking Committee Agent
+    1: "openai/gpt-4o",                           # Intake Parser (PDF + visual context)
+    2: "minimax/MiniMax-M2.7",                    # Venture Analyst
+    3: "minimax/MiniMax-M2.7",                    # Market & Competition Analyst
+    4: "minimax/MiniMax-M2.7",                    # Product & Positioning Analyst
+    5: "minimax/MiniMax-M2.7",                    # Founder Fit Analyst
+    6: "minimax/MiniMax-M2.7",                    # Recommendation / Pivot Agent
+    7: "minimax/MiniMax-M2.7",                    # Ranking Committee Agent
 }
 
 # ---------------------------------------------------------------------------
@@ -99,14 +98,13 @@ RETRY_BASE_DELAY = 2
 # Fallback model to use when primary model fails after retries
 # Can be a single model string or a dict mapping agent_number → fallback model
 # Set to None to disable fallback (will raise error instead)
-FALLBACK_MODEL = "anthropic/claude-haiku-4-5"  # Global default (cheap, fast, reliable)
+FALLBACK_MODEL = "openai/gpt-4o-mini"  # Global default (fast, reliable)
 
 # Per-agent fallback overrides. Agents not listed use FALLBACK_MODEL above.
-# Agents 0, 2, 6 need higher reasoning quality when MiniMax fails.
+# Agents 2 and 6 need higher reasoning quality when MiniMax fails.
 AGENT_FALLBACK_MODELS: dict[int, str] = {
-    0: "anthropic/claude-sonnet-4-6",  # Idea Generator - needs strong reasoning
-    2: "anthropic/claude-sonnet-4-6",  # Venture Analyst - critical scoring decisions
-    6: "anthropic/claude-sonnet-4-6",  # Recommendations - strategic synthesis
+    2: "openai/gpt-4o",   # Venture Analyst - critical scoring decisions
+    6: "openai/gpt-4o",   # Recommendations - strategic synthesis
 }
 
 # After this many successful fallback executions, try switching back to primary
