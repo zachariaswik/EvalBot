@@ -14,25 +14,6 @@ CRITICAL_FIELDS = ["problem", "solution", "target_customer", "market", "business
 QUALITY_GATE_THRESHOLD = 3  # Warn if >= this many critical fields are missing
 
 # ---------------------------------------------------------------------------
-# Quick Wins Optimization Configuration
-# ---------------------------------------------------------------------------
-
-# Best-of-N Sampling: Generate N candidate ideas per inner-loop attempt
-# and select the highest-scoring one. N=1 disables this feature (original behavior).
-# Higher N improves quality but increases API costs linearly.
-BEST_OF_N = 3  # Valid range: 1-10
-
-# Hall of Fame: Maintain a library of top-scoring ideas to guide Agent 0
-# with concrete examples of what "great" looks like.
-ENABLE_HALL_OF_FAME = True
-HALL_OF_FAME_SIZE = 5  # Maximum number of ideas to keep
-HALL_OF_FAME_MIN_SCORE = 60  # Minimum weighted score (0-80) to enter hall of fame
-
-# Explicit Dimension Reasoning: Force Agent 0 to self-evaluate on each
-# scoring dimension before submission. Helps catch oversights.
-ENABLE_DIMENSION_REASONING = True
-
-# ---------------------------------------------------------------------------
 # LLM Configuration
 # ---------------------------------------------------------------------------
 # Supported model string formats (CrewAI uses litellm under the hood):
@@ -74,7 +55,6 @@ RERUN_MODEL: str | None = None
 # Per-agent model overrides. Set to a model string to override DEFAULT_MODEL.
 # None means "use DEFAULT_MODEL".
 AGENT_MODELS: dict[int, str | None] = {
-    0: "minimax/MiniMax-M2.7",                   # Startup Idea Generator (generate mode only)
     1: "openai/gpt-4o",                           # Intake Parser (PDF + visual context)
     2: "minimax/MiniMax-M2.7",                    # Venture Analyst
     3: "minimax/MiniMax-M2.7",                    # Market & Competition Analyst

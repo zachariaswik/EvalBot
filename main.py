@@ -59,19 +59,6 @@ def _colorize(text: str, color: str) -> str:
     return f"{color}{text}{Colors.RESET}"
 
 
-def _next_generated_id() -> str:
-    """Return the next sequential generated ID (generated_1, generated_2, ...)."""
-    output_dir = PROJECT_ROOT / "output"
-    if not output_dir.exists():
-        return "generated_1"
-    existing = [
-        int(d.name.split("_")[1])
-        for d in output_dir.iterdir()
-        if d.is_dir() and d.name.startswith("generated_") and d.name.split("_")[1].isdigit()
-    ]
-    return f"generated_{max(existing) + 1}" if existing else "generated_1"
-
-
 def _next_batch_id() -> str:
     """Return the next sequential batch ID (batch_1, batch_2, ...)."""
     output_dir = PROJECT_ROOT / "output" / "Batch"
@@ -170,7 +157,6 @@ def _extract_text_from_docx(docx_path: Path) -> str | None:
 
 
 AGENT_ROLES = {
-    0: "Startup Idea Generator",
     1: "Intake Parser",
     2: "Venture Analyst",
     3: "Market & Competition Analyst",
@@ -751,9 +737,8 @@ def _write_batch_summary(
     individual: dict[str, dict[int, Any]],
     ranking_usage: dict[int, dict] | None = None,
     execution_metrics: dict[str, Any] | None = None,
-    is_generation: bool = False,
 ) -> None:
-    """Write batch/generation summary with model table and token/cost breakdown."""
+    """Write batch summary with model table and token/cost breakdown."""
     # Aggregate usage across all startups per agent
     aggregated: dict[int, dict] = {}
     fallback_counts: dict[int, int] = {}  # Track number of times each agent used fallback
@@ -830,40 +815,6 @@ def _write_batch_summary(
                 lines.append(f"- **{error_stat['error_type']}**: {error_stat['count']} occurrences")
             lines.append("")
     
-    # Execution Summary
-    if execution_metrics:
-        lines.append("## Execution Summary")
-        lines.append("")
-        metrics = execution_metrics
-        lines.append(f"**Outer Rounds**: {metrics.get('outer_rounds', 'N/A')}")
-        lines.append(f"**Startups Generated**: {metrics.get('startup_count', 'N/A')}")
-        lines.append(f"**Ranking**: {'Yes' if metrics.get('has_ranking') else 'No'}")
-        lines.append("")
-        
-        lines.append("### Inner Loop Details")
-        lines.append("")
-        max_inner = metrics.get("max_inner_attempts", "N/A")
-        total_attempts = metrics.get("total_attempts_made", 0)
-        actual_attempts = metrics.get("actual_attempts_per_round", [])
-        
-        if actual_attempts:
-            lines.append(f"**Max Inner Attempts per Round**: {max_inner}")
-            lines.append(f"**Total Inner Attempts Made**: {total_attempts}")
-            lines.append("")
-            lines.append("**Breakdown by Round**:")
-            for idx, attempts in enumerate(actual_attempts, 1):
-                lines.append(f"  - Round {idx}: {attempts} attempt(s)")
-            lines.append("")
-        
-        total_runs = metrics.get("total_agent_runs", 0)
-        lines.append(f"**Total Agent Invocations**: {total_runs}")
-        lines.append(f"  - Inner loop (Agents 0,1,2): {sum(a*3 for a in actual_attempts)} invocations")
-        lines.append(f"  - Full evaluation (Agents 3-6): {len(actual_attempts)*4} invocations")
-        if metrics.get("has_ranking"):
-            lines.append(f"  - Ranking (Agent 7): 1 invocation")
-        lines.append("")
-    
-    # Models table
     lines.append("## Models Used")
     lines.append("")
     lines.append("| Agent | Role                           | Model                              | Notes |")
@@ -901,7 +852,7 @@ def _write_batch_summary(
     )
     lines.append("")
 
-    (out_dir / ("generation_summary.md" if is_generation else "batch_summary.md")).write_text("\n".join(lines), encoding="utf-8")
+    (out_dir / "batch_summary.md").write_text("\n".join(lines), encoding="utf-8")
 
 
 def _fmt_list(items: list | str | None, bullet: str = "- ") -> str:
@@ -928,7 +879,6 @@ def _write_startup_report(
     startup_name: str, agent_outputs: dict[int | str, Any], path: Path
 ) -> None:
     """Write a human-readable markdown report for a single startup."""
-    a0 = agent_outputs.get(0) or agent_outputs.get("0") or {}
     a1 = _parse_raw_output(agent_outputs.get(1) or agent_outputs.get("1") or {})
     a2 = agent_outputs.get(2) or agent_outputs.get("2") or {}
     a3 = agent_outputs.get(3) or agent_outputs.get("3") or {}
@@ -936,7 +886,6 @@ def _write_startup_report(
     a5 = _parse_raw_output(agent_outputs.get(5) or agent_outputs.get("5") or {})
     a6 = agent_outputs.get(6) or agent_outputs.get("6") or {}
     tags = agent_outputs.get("_tags") or []
-    gen_meta = agent_outputs.get("_gen_meta") or {}
 
     def g(d: dict, key: str, fallback: str = "N/A") -> str:
         v = d.get(key)
@@ -964,16 +913,6 @@ def _write_startup_report(
 
     lines.append("---")
     lines.append("")
-
-    # --- Agent 0: Idea Generation (only if present) ---
-    if a0:
-        lines.append("## 0. Idea Generation (Agent 0)")
-        lines.append("")
-        if gen_meta:
-            lines.append(f"**Round:** {gen_meta.get('round', 'N/A')} | **Attempt:** {gen_meta.get('attempt', 'N/A')}")
-            lines.append("")
-        lines.append(f"**Strategy Notes:** {g(a0, 'strategy_notes')}")
-        lines.append("")
 
     # --- Agent 1: Startup Brief ---
     lines.append("## 1. Startup Brief (Agent 1)")
@@ -1196,20 +1135,16 @@ def export_results(
     ranking: dict[str, Any] | None = None,
     ranking_usage: dict[int, dict] | None = None,
     execution_metrics: dict[str, Any] | None = None,
-    is_generation: bool = False,
     is_batch_mode: bool = False,
 ) -> Path:
     """Write pipeline results as JSON files.
     
     Output locations:
     - Batch mode: output/Batch/<batch_id>/
-    - Generate mode: output/Generated/<batch_id>/
     - Single mode: output/<batch_id>/
     """
     if is_batch_mode:
         out_dir = PROJECT_ROOT / "output" / "Batch" / batch_id
-    elif is_generation:
-        out_dir = PROJECT_ROOT / "output" / "Generated" / batch_id
     else:
         out_dir = PROJECT_ROOT / "output" / batch_id
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1230,99 +1165,9 @@ def export_results(
             encoding="utf-8",
         )
 
-    _write_batch_summary(batch_id, out_dir, individual, ranking_usage, execution_metrics, is_generation)
+    _write_batch_summary(batch_id, out_dir, individual, ranking_usage, execution_metrics)
 
     return out_dir
-
-
-SCREENING_THRESHOLD = 50  # Weighted score on 0-80 scale
-INNER_LOOP_MAX_ATTEMPTS = 5
-
-
-def _run_candidate_through_screening(
-    constraints: dict[str, Any],
-    screening_feedback: dict[str, Any] | None,
-    prior_evaluation: dict[str, Any] | None,
-    prior_score: dict[str, Any] | None,
-    round_number: int,
-    attempt_number: int,
-    force_completely_new_idea: bool,
-    current_round: int,
-    total_rounds: int,
-    inner_attempt: int,
-    total_inner_attempts: int,
-    candidate_index: int = 1,
-) -> dict[str, Any] | None:
-    """Run a single candidate through Agent 0 → Agent 1 → Agent 2 (screening phase).
-    
-    Returns a dict with score, a0, a1, a2 outputs, submission, attempt info, and usage.
-    Returns None if the candidate fails to parse at Agent 2.
-    """
-    from src.pipeline import _compute_weighted_score, _check_reject_signals
-    
-    # Run Agent 0
-    a0_output, a0_usage = _run_single_agent(
-        agent_number=0,
-        submission_text="",
-        agent0_task_kwargs={
-            "constraints": constraints,
-            "screening_feedback": screening_feedback,
-            "prior_evaluation": prior_evaluation,
-            "prior_score": prior_score,
-            "round_number": round_number,
-            "attempt_number": attempt_number,
-            "force_completely_new_idea": force_completely_new_idea,
-        },
-        current_round=current_round,
-        total_rounds=total_rounds,
-        inner_attempt=inner_attempt,
-        total_inner_attempts=total_inner_attempts,
-    )
-    startup_name = a0_output.get("startup_name", "Generated Startup")
-    submission_text = a0_output.get("submission_text", "")
-    
-    # Run Agent 1 (Intake Parser)
-    a1_output, a1_usage = _run_single_agent(
-        agent_number=1,
-        submission_text=submission_text,
-        current_round=current_round,
-        total_rounds=total_rounds,
-        inner_attempt=inner_attempt,
-        total_inner_attempts=total_inner_attempts,
-    )
-    
-    # Run Agent 2 (Venture Analyst)
-    a2_output, a2_usage = _run_single_agent(
-        agent_number=2,
-        submission_text=submission_text,
-        prior_context={1: a1_output},
-        current_round=current_round,
-        total_rounds=total_rounds,
-        inner_attempt=inner_attempt,
-        total_inner_attempts=total_inner_attempts,
-    )
-    
-    # Check for parse failure
-    if a2_output.get("_parse_failed"):
-        return None
-    
-    # Compute weighted score
-    weighted_score, score_tier = _compute_weighted_score(a2_output)
-    a2_output["weighted_total_score"] = weighted_score
-    a2_output["score_tier"] = score_tier
-    reject_signals = _check_reject_signals(a2_output)
-    a2_output["reject_signals"] = reject_signals
-    
-    return {
-        "score": weighted_score,
-        "a0": a0_output,
-        "a1": a1_output,
-        "a2": a2_output,
-        "submission": submission_text,
-        "attempt": attempt_number,
-        "candidate_index": candidate_index,
-        "usage": {0: a0_usage, 1: a1_usage, 2: a2_usage},
-    }
 
 
 def _show_agent_timer(
@@ -1341,7 +1186,6 @@ def _show_agent_timer(
 
     # Assign a unique color per agent for easy identification
     agent_colors = [
-        Colors.BRIGHT_GREEN,   # Agent 0
         Colors.BRIGHT_CYAN,   # Agent 1
         Colors.BRIGHT_MAGENTA, # Agent 2
         Colors.BRIGHT_YELLOW,  # Agent 3
@@ -1387,7 +1231,6 @@ def _run_single_agent(
     agent_number: int,
     submission_text: str,
     prior_context: dict[int, Any] | None = None,
-    agent0_task_kwargs: dict[str, Any] | None = None,
     current_round: int | None = None,
     total_rounds: int | None = None,
     inner_attempt: int | None = None,
@@ -1395,29 +1238,25 @@ def _run_single_agent(
 ) -> tuple[dict, dict]:
     """Run a single agent in a one-agent CrewAI Crew and return (output_dict, usage_dict).
 
-    For Agent 0, pass agent0_task_kwargs with the arguments for create_agent0_task().
-    For Agents 1-6, uses the standard create_task().
+    Uses the standard create_task() for Agents 1-6.
     """
     from crewai import Crew, Task
 
     from src.agents import create_agent
     from src.config import get_model_for_agent
     from src.models import AGENT_OUTPUT_MODELS
-    from src.tasks import create_agent0_task, create_task
+    from src.tasks import create_task
 
     model_name = get_model_for_agent(agent_number)
     role = AGENT_ROLES.get(agent_number, "Unknown")
     agent = create_agent(agent_number)
 
-    if agent_number == 0:
-        task = create_agent0_task(agent=agent, **(agent0_task_kwargs or {}))
-    else:
-        task = create_task(
-            agent_number=agent_number,
-            agent=agent,
-            submission_text=submission_text,
-            prior_context=prior_context,
-        )
+    task = create_task(
+        agent_number=agent_number,
+        agent=agent,
+        submission_text=submission_text,
+        prior_context=prior_context,
+    )
 
     # MiniMax can fail with Instructor "multiple tool calls" on structured output.
     if not _supports_structured_output(model_name):
@@ -1606,698 +1445,6 @@ def _run_single_agent(
     return output_dict, usage_dict
 
 
-def _parse_generate_args(args: list[str]) -> dict[str, Any]:
-    """Parse CLI flags for the generate command into a config dict."""
-    from src.config import BEST_OF_N, ENABLE_HALL_OF_FAME, ENABLE_DIMENSION_REASONING
-    
-    config: dict[str, Any] = {
-        "team_size": 1,
-        "experience": "Founder starting from scratch without any previous experience to help him",
-        "network": None,
-        "availability": "100%",
-        "locale": "unspecified, assume global",
-        "capital": "Very low",
-        "traction": "Zero — no customers, no revenue, no prototype",
-        "languages": "English",
-        "industry": "Unspecified",
-        "rounds": 3,
-        "name": None,
-        # Quick Wins optimizations
-        "best_of_n": BEST_OF_N,
-        "enable_hall_of_fame": ENABLE_HALL_OF_FAME,
-        "enable_dimension_reasoning": ENABLE_DIMENSION_REASONING,
-    }
-
-    i = 0
-    while i < len(args):
-        flag = args[i]
-        if flag == "--rounds" and i + 1 < len(args):
-            config["rounds"] = int(args[i + 1])
-            i += 2
-        elif flag == "--team-size" and i + 1 < len(args):
-            config["team_size"] = int(args[i + 1])
-            i += 2
-        elif flag == "--experience" and i + 1 < len(args):
-            config["experience"] = args[i + 1]
-            i += 2
-        elif flag == "--network" and i + 1 < len(args):
-            config["network"] = args[i + 1]
-            i += 2
-        elif flag == "--availability" and i + 1 < len(args):
-            config["availability"] = args[i + 1]
-            i += 2
-        elif flag == "--locale" and i + 1 < len(args):
-            config["locale"] = args[i + 1]
-            i += 2
-        elif flag == "--capital" and i + 1 < len(args):
-            config["capital"] = args[i + 1]
-            i += 2
-        elif flag == "--traction" and i + 1 < len(args):
-            config["traction"] = args[i + 1]
-            i += 2
-        elif flag == "--languages" and i + 1 < len(args):
-            config["languages"] = args[i + 1]
-            i += 2
-        elif flag == "--industry" and i + 1 < len(args):
-            config["industry"] = args[i + 1]
-            i += 2
-        elif flag == "--name" and i + 1 < len(args):
-            config["name"] = args[i + 1]
-            i += 2
-        elif flag == "--best-of-n" and i + 1 < len(args):
-            n = int(args[i + 1])
-            if not 1 <= n <= 10:
-                print(f"Warning: --best-of-n must be between 1 and 10, got {n}. Using default.")
-            else:
-                config["best_of_n"] = n
-            i += 2
-        elif flag == "--no-hall-of-fame":
-            config["enable_hall_of_fame"] = False
-            i += 1
-        elif flag == "--no-dimension-reasoning":
-            config["enable_dimension_reasoning"] = False
-            i += 1
-        else:
-            print(f"Unknown flag: {flag}")
-            i += 1
-
-    return config
-
-
-def run_generate(config: dict[str, Any]) -> None:
-    """Run the generate pipeline with nested inner/outer feedback loops."""
-    from src.pipeline import _compute_weighted_score, _check_reject_signals, _compute_tags, StartupEvalPipeline
-    from src.db import init_db, create_batch
-    from src.models import Recommendation, Verdict
-
-    rounds = config.pop("rounds")
-    given_name = config.pop("name")
-
-    # Build founder constraints from remaining config
-    constraints: dict[str, Any] = {}
-    for key in ["team_size", "experience", "network", "availability", "locale", "capital", "traction", "languages", "industry"]:
-        val = config.get(key)
-        if val is not None:
-            constraints[key] = val
-
-    batch_id = _next_generated_id()
-    all_results: dict[str, dict[int, Any]] = {}
-    score_progression: list[tuple[str, float, str]] = []
-
-    # Execution metrics tracking
-    actual_attempts_per_round: list[int] = []
-    total_attempts_made = 0
-    
-    # Outer loop feedback state
-    prior_evaluation: dict[str, Any] | None = None
-    prior_score: dict[str, Any] | None = None
-    non_strong_positive_streak = 0
-
-    pipeline_start = time.time()
-
-    def _elapsed() -> str:
-        e = int(time.time() - pipeline_start)
-        mins, secs = divmod(e, 60)
-        return f"{mins}m {secs}s"
-
-    print(f"\n{_colorize('#' * 60, Colors.BRIGHT_MAGENTA)}")
-    print(f"  {_colorize('EvalBot — Generate Mode', Colors.BRIGHT_CYAN + Colors.BOLD)}")
-    print(f"  {_colorize('Batch:', Colors.DIM)} {batch_id} | {_colorize('Rounds:', Colors.DIM)} {rounds}")
-    print(f"  {_colorize('Started:', Colors.DIM)} {datetime.now().strftime('%H:%M:%S')}")
-    print(f"  {_colorize('Structure:', Colors.DIM)} Each round runs inner loop (Agent 0,1,2) up to {INNER_LOOP_MAX_ATTEMPTS} times,")
-    print(f"             then agents 3-6 on best candidate | {_colorize('Screening threshold:', Colors.DIM)} {SCREENING_THRESHOLD}/80")
-    print(f"{'#'*60}")
-    print(f"\n  Constraints:")
-    for k, v in constraints.items():
-        print(f"    {k.replace('_', ' ').title()}: {v}")
-    print()
-
-    # Load Hall of Fame examples for this batch (if enabled)
-    hall_of_fame_examples: list[dict] = []
-    if config.get("enable_hall_of_fame", True):
-        from src.db import get_top_ideas
-        hall_of_fame_examples = get_top_ideas(limit=5, min_score=60)
-        if hall_of_fame_examples:
-            print(f"  {_colorize('Hall of Fame:', Colors.BRIGHT_CYAN)} Loaded {len(hall_of_fame_examples)} top-scoring examples")
-            for i, ex in enumerate(hall_of_fame_examples, 1):
-                score = ex.get('weighted_score', 0)
-                score_color = Colors.BRIGHT_GREEN if score >= 60 else Colors.BRIGHT_YELLOW
-                print(f"    {_colorize(f'{i}.', Colors.DIM)} {ex.get('startup_name', 'Unknown')} ({_colorize(f'Score: {score:.1f}/80', score_color)})")
-        else:
-            print(f"  {_colorize('Hall of Fame:', Colors.DIM)} No examples yet (need scores >= 60)")
-    print()
-
-    for round_num in range(1, rounds + 1):
-        print(f"\n{_colorize('=' * 60, Colors.DIM)}")
-        streak_info = f"(non-strong-positive streak: {non_strong_positive_streak})" if non_strong_positive_streak > 0 else ""
-        print(f"  {_colorize('OUTER ROUND', Colors.BOLD)} {_colorize(f'{round_num}/{rounds}', Colors.BRIGHT_YELLOW)} {streak_info}")
-        print(f"  [{_elapsed()} elapsed]")
-        print(f"{_colorize('=' * 60, Colors.DIM)}")
-
-        # --- Best-of-N + Inner loop: Generate N candidates, then run screening ---
-        best_attempt: dict[str, Any] | None = None
-        screening_feedback: dict[str, Any] | None = None
-        
-        # Extract Best-of-N config
-        best_of_n = config.get("best_of_n", 1)
-        enable_hall_of_fame = config.get("enable_hall_of_fame", True)
-        enable_dimension_reasoning = config.get("enable_dimension_reasoning", True)
-        
-        # Determine if we need to force a completely new idea (same logic as inner loop)
-        force_completely_new_idea = non_strong_positive_streak >= 2 and round_num > 1
-        
-        # If Best-of-N > 1, generate candidates in parallel using threading
-        if best_of_n > 1:
-            print(f"\n  {_colorize('⚡ BEST-OF-N', Colors.BRIGHT_CYAN)}: Generating {_colorize(str(best_of_n), Colors.BRIGHT_YELLOW)} candidates in parallel...")
-            
-            # For Best-of-N, we don't use screening feedback on first pass
-            # (it's per-candidate, not cumulative)
-            candidates: list[dict[str, Any]] = []
-            
-            # Import ThreadPoolExecutor for parallel execution
-            from concurrent.futures import ThreadPoolExecutor, as_completed
-            
-            # Track which candidates are running
-            running_candidates: dict[int, float] = {}  # cand_idx -> start time
-            lock = threading.Lock()
-            candidate_colors = [Colors.BRIGHT_GREEN, Colors.BRIGHT_MAGENTA, Colors.BRIGHT_CYAN, Colors.BRIGHT_YELLOW, Colors.BRIGHT_BLUE]
-            
-            def run_single_candidate(cand_idx: int) -> dict[str, Any] | None:
-                """Run a single candidate through Agent 0 → 1 → 2."""
-                nonlocal running_candidates
-                
-                # Register this candidate as running
-                with lock:
-                    running_candidates[cand_idx] = time.time()
-                
-                try:
-                    # Run Agent 0
-                    a0_output, a0_usage = _run_single_agent(
-                        agent_number=0,
-                        submission_text="",
-                        agent0_task_kwargs={
-                            "constraints": constraints,
-                            "screening_feedback": None,  # No feedback on first pass
-                            "prior_evaluation": prior_evaluation,
-                            "prior_score": prior_score,
-                            "round_number": round_num,
-                            "attempt_number": cand_idx,
-                            "force_completely_new_idea": force_completely_new_idea,
-                            "hall_of_fame_examples": hall_of_fame_examples if enable_hall_of_fame else None,
-                            "enable_dimension_reasoning": enable_dimension_reasoning,
-                        },
-                        current_round=round_num,
-                        total_rounds=rounds,
-                        inner_attempt=cand_idx,
-                        total_inner_attempts=best_of_n,
-                    )
-                    startup_name = a0_output.get("startup_name", f"Generated {cand_idx}")
-                    submission_text = a0_output.get("submission_text", "")
-                    
-                    # Debug: Print Agent 0 output for debugging
-                    if not submission_text:
-                        print(f"    {_colorize('⚠ DEBUG:', Colors.BRIGHT_RED)} Agent 0 returned empty submission_text!")
-                        print(f"       startup_name: {startup_name}")
-                        print(f"       full output: {a0_output}")
-                    else:
-                        print(f"    • {_colorize('[Agent 0: Generator]', Colors.BRIGHT_GREEN)} {_colorize(startup_name, Colors.WHITE)}")
-                    
-                    # Run Agent 1 (Intake Parser)
-                    a1_output, a1_usage = _run_single_agent(
-                        agent_number=1,
-                        submission_text=submission_text,
-                        current_round=round_num,
-                        total_rounds=rounds,
-                        inner_attempt=cand_idx,
-                        total_inner_attempts=best_of_n,
-                    )
-                    
-                    # Run Agent 2 (Venture Analyst)
-                    a2_output, a2_usage = _run_single_agent(
-                        agent_number=2,
-                        submission_text=submission_text,
-                        prior_context={1: a1_output},
-                        current_round=round_num,
-                        total_rounds=rounds,
-                        inner_attempt=cand_idx,
-                        total_inner_attempts=best_of_n,
-                    )
-                    
-                    # Compute weighted score
-                    weighted_score, score_tier = _compute_weighted_score(a2_output)
-                    a2_output["weighted_total_score"] = weighted_score
-                    a2_output["score_tier"] = score_tier
-                    reject_signals = _check_reject_signals(a2_output)
-                    a2_output["reject_signals"] = reject_signals
-                    
-                    return {
-                        "score": weighted_score,
-                        "a0": a0_output,
-                        "a1": a1_output,
-                        "a2": a2_output,
-                        "submission": submission_text,
-                        "attempt": cand_idx,
-                        "candidate_index": cand_idx,
-                        "usage": {0: a0_usage, 1: a1_usage, 2: a2_usage},
-                    }
-                except Exception as e:
-                    print(f"    {_colorize('⚠', Colors.BRIGHT_RED)} Candidate {cand_idx} failed with error: {e}")
-                    return None
-                finally:
-                    # Remove from running list
-                    with lock:
-                        if cand_idx in running_candidates:
-                            del running_candidates[cand_idx]
-            
-            # Run candidates in parallel using ThreadPoolExecutor
-            print(f"\n  Starting {_colorize(str(best_of_n), Colors.BRIGHT_YELLOW)} parallel workflows...")
-            
-            def _show_parallel_progress():
-                """Show live progress of running parallel candidates."""
-                while True:
-                    with lock:
-                        if not running_candidates:
-                            return
-                        running = list(running_candidates.keys())
-                    
-                    if running:
-                        elapsed = int(time.time() - list(running_candidates.values())[0])
-                        mins, secs = divmod(elapsed, 60)
-                        status = ", ".join([f"{c}" for c in running])
-                        print(f"\r  {_colorize('▓', Colors.BRIGHT_GREEN)} Running: [{status}] | Elapsed: {mins}m {secs}s", end="")
-                        sys.stdout.flush()
-                    time.sleep(2)
-            
-            # Start progress display thread
-            progress_thread = threading.Thread(target=_show_parallel_progress, daemon=True)
-            progress_thread.start()
-            
-            with ThreadPoolExecutor(max_workers=best_of_n) as executor:
-                futures = {executor.submit(run_single_candidate, idx): idx for idx in range(1, best_of_n + 1)}
-                
-                for future in as_completed(futures):
-                    cand_idx = futures[future]
-                    try:
-                        candidate = future.result()
-                        if candidate is not None:
-                            candidates.append(candidate)
-                            score = candidate['score']
-                            color = Colors.BRIGHT_GREEN if score >= 50 else Colors.BRIGHT_YELLOW if score >= 30 else Colors.BRIGHT_RED
-                            print(f"    {_colorize('✓', Colors.BRIGHT_GREEN)} Candidate {cand_idx} → {_colorize(f'Score: {score}/80', color)} ({_colorize(candidate['a2'].get('score_tier', 'N/A'), Colors.BRIGHT_CYAN)})")
-                    except Exception as e:
-                        print(f"    {_colorize('⚠', Colors.BRIGHT_RED)} Candidate {cand_idx} threw exception: {e}")
-            
-            # Clear progress line
-            print("\r" + " " * 60 + "\r", end="")
-            
-            # Select best candidate
-            if not candidates:
-                print(f"\n  {_colorize('✗ No candidates completed successfully!', Colors.BRIGHT_RED)}")
-                continue
-            
-            candidates.sort(key=lambda x: x["score"], reverse=True)
-            best_candidate = candidates[0]
-            best_attempt = best_candidate
-            
-            print(f"\n  {_colorize('✓ Best-of-N selected:', Colors.BRIGHT_GREEN)} {best_candidate['a0'].get('startup_name', 'Unknown')}")
-            print(f"    Score: {_colorize(str(best_candidate['score']), Colors.BRIGHT_CYAN)}/80")
-            
-            # If didn't pass screening, set up for retry loop
-            if best_candidate["score"] < SCREENING_THRESHOLD:
-                screening_feedback = best_candidate["a2"]
-                print(f"  {_colorize('└─ ✗ BEST-OF-N FAILED screening', Colors.BRIGHT_RED)} ({best_candidate['score']} < {SCREENING_THRESHOLD})")
-                print(f"     {_colorize('↻ Falling back to retry loop...', Colors.BRIGHT_YELLOW)}")
-        
-        # If best_of_n=1 or Best-of-N failed, run standard retry loop
-        if best_of_n == 1 or (best_attempt is not None and best_attempt["score"] < SCREENING_THRESHOLD):
-            # Reset best_attempt if Best-of-N failed (to avoid using low-scoring candidate)
-            if best_of_n > 1 and best_attempt is not None and best_attempt["score"] < SCREENING_THRESHOLD:
-                best_attempt = None
-            
-            # Continue with retry loop (original logic)
-            for attempt in range(1, INNER_LOOP_MAX_ATTEMPTS + 1):
-                print(f"\n  {_colorize('┌─', Colors.DIM)} INNER LOOP  {_colorize(f'Attempt {attempt}/{INNER_LOOP_MAX_ATTEMPTS}', Colors.BRIGHT_YELLOW)}  [{_elapsed()}]")
-
-                # If the prior two outer rounds were not strongly positive, force exploration.
-                force_completely_new_idea = non_strong_positive_streak >= 2 and round_num > 1
-                if force_completely_new_idea and attempt == 1:
-                    print(f"    {_colorize('⚠', Colors.BRIGHT_RED)} [{_colorize('FORCED RESTART', Colors.BRIGHT_RED)}]  Generating a completely new direction...")
-
-                # Run Agent 0
-                a0_output, a0_usage = _run_single_agent(
-                    agent_number=0,
-                    submission_text="",
-                    agent0_task_kwargs={
-                        "constraints": constraints,
-                        "screening_feedback": screening_feedback,
-                        "prior_evaluation": prior_evaluation,
-                        "prior_score": prior_score,
-                        "round_number": round_num,
-                        "attempt_number": attempt,
-                        "force_completely_new_idea": force_completely_new_idea,
-                        "hall_of_fame_examples": hall_of_fame_examples if enable_hall_of_fame else None,
-                        "enable_dimension_reasoning": enable_dimension_reasoning,
-                    },
-                    current_round=round_num,
-                    total_rounds=rounds,
-                    inner_attempt=attempt,
-                    total_inner_attempts=INNER_LOOP_MAX_ATTEMPTS,
-                )
-                startup_name = a0_output.get("startup_name", "Generated Startup")
-                submission_text = a0_output.get("submission_text", "")
-                if not submission_text:
-                    print(f"    {_colorize('⚠ DEBUG:', Colors.BRIGHT_RED)} Agent 0 returned empty submission_text!")
-                    print(f"       startup_name: {startup_name}")
-                    print(f"       full output: {a0_output}")
-                else:
-                    print(f"    • {_colorize('[Agent 0: Generator]', Colors.BRIGHT_GREEN)} {_colorize(startup_name, Colors.WHITE)}")
-                strategy = a0_output.get("strategy_notes", "")
-                if strategy:
-                    print(f"      {_colorize('Strategy:', Colors.DIM)} {strategy[:150]}...")
-
-                # Run Agent 1 (Intake Parser)
-                a1_output, a1_usage = _run_single_agent(
-                    agent_number=1,
-                    submission_text=submission_text,
-                    current_round=round_num,
-                    total_rounds=rounds,
-                    inner_attempt=attempt,
-                    total_inner_attempts=INNER_LOOP_MAX_ATTEMPTS,
-                )
-                print(f"    • {_colorize('[Agent 1: Intake Parser]', Colors.BRIGHT_CYAN)} Processing submission...")
-
-                # Run Agent 2 (Venture Analyst)
-                a2_output, a2_usage = _run_single_agent(
-                    agent_number=2,
-                    submission_text=submission_text,
-                    prior_context={1: a1_output},
-                    current_round=round_num,
-                    total_rounds=rounds,
-                    inner_attempt=attempt,
-                    total_inner_attempts=INNER_LOOP_MAX_ATTEMPTS,
-                )
-                print(f"    • {_colorize('[Agent 2: Venture Analyst]', Colors.BRIGHT_MAGENTA)} Scoring...")  
-
-                # Do not score unparseable Agent 2 output as 0/N/A.
-                if a2_output.get("_parse_failed"):
-                    print(f"    {_colorize('⚠', Colors.BRIGHT_RED)} Agent 2 output was not parseable JSON. Skipping scoring for this attempt.")
-                    screening_feedback = {
-                        "verdict": "Parse Failure",
-                        "explanation": (
-                            "Agent 2 returned output that could not be parsed into the required schema. "
-                            "Return exactly one valid JSON object with all required keys and valid enum values."
-                        ),
-                    }
-                    if attempt < INNER_LOOP_MAX_ATTEMPTS:
-                        print(f"  {_colorize('└─ ✗ INVALID Agent 2 output format', Colors.BRIGHT_RED)}")
-                        print(f"     {_colorize('↻ Retrying with stricter formatting feedback...', Colors.BRIGHT_YELLOW)}")
-                    else:
-                        print(f"  {_colorize('└─ ✗ INVALID Agent 2 output format (final inner attempt)', Colors.BRIGHT_RED)}")
-                    continue
-
-                # Compute weighted score
-                weighted_score, score_tier = _compute_weighted_score(a2_output)
-                a2_output["weighted_total_score"] = weighted_score
-                a2_output["score_tier"] = score_tier
-                reject_signals = _check_reject_signals(a2_output)
-                a2_output["reject_signals"] = reject_signals
-
-                # Color the score based on value
-                score_color = Colors.BRIGHT_GREEN if weighted_score >= 50 else Colors.BRIGHT_YELLOW if weighted_score >= 30 else Colors.BRIGHT_RED
-                tier_color = Colors.BRIGHT_GREEN if score_tier == "Strong Positive" else Colors.BRIGHT_YELLOW if score_tier == "Positive" else Colors.BRIGHT_RED if score_tier == "Negative" else Colors.DIM
-                print(f"    • {_colorize(f'Score: {weighted_score}/80', score_color)} ({_colorize(score_tier, tier_color)}) | {_colorize('Verdict:', Colors.DIM)} {a2_output.get('verdict', 'N/A')}")
-                if reject_signals:
-                    print(f"    → {_colorize('Reject signals:', Colors.BRIGHT_RED)} {', '.join(reject_signals)}")
-
-                # Track best attempt
-                current = {
-                    "score": weighted_score,
-                    "a0": a0_output,
-                    "a1": a1_output,
-                    "a2": a2_output,
-                    "submission": submission_text,
-                    "attempt": attempt,
-                    "usage": {0: a0_usage, 1: a1_usage, 2: a2_usage},
-                }
-                if best_attempt is None or weighted_score > best_attempt["score"]:
-                    best_attempt = current
-
-                if weighted_score >= SCREENING_THRESHOLD:
-                    print(f"  └─ ✓ PASSED screening ({weighted_score} >= {SCREENING_THRESHOLD})")
-                    break
-                else:
-                    print(f"  └─ ✗ FAILED screening ({weighted_score} < {SCREENING_THRESHOLD})")
-                    screening_feedback = a2_output
-                    if attempt < INNER_LOOP_MAX_ATTEMPTS:
-                        print(f"     ↻ Retrying with feedback...")
-
-        if best_attempt is None:
-            print("  ERROR: No attempts completed. Skipping round.")
-            continue
-
-        actual_attempt = best_attempt["attempt"]
-        actual_attempts_per_round.append(actual_attempt)
-        total_attempts_made += actual_attempt
-        
-        if best_attempt["score"] < SCREENING_THRESHOLD:
-            print(f"\n  Inner loop exhausted — using best attempt (score {best_attempt['score']}/80)")
-
-        # --- Continue with Agents 3-6 using the best/passing attempt ---
-        startup_name = best_attempt["a0"].get("startup_name", "Generated Startup")
-        submission_text = best_attempt["submission"]
-        used_attempt = best_attempt["attempt"]
-
-        print(f"\n  ──────────────────────────────────────")
-        print(f"  Full Evaluation Phase")
-        print(f"  {startup_name}")
-        print(f"  (Inner attempt {used_attempt}/{INNER_LOOP_MAX_ATTEMPTS}, score {best_attempt['score']}/80)")
-        print(f"  Running Agents 3-6...")
-        print(f"  ──────────────────────────────────────\n")
-
-        # Build prior context for agents 3-6
-        prior_context: dict[int, Any] = {
-            1: best_attempt["a1"],
-            2: best_attempt["a2"],
-        }
-        agent_usage = dict(best_attempt["usage"])
-
-        for agent_num in range(3, 7):
-            agent_role = AGENT_ROLES.get(agent_num, f"Agent {agent_num}")
-            a_output, a_usage = _run_single_agent(
-                agent_number=agent_num,
-                submission_text=submission_text,
-                prior_context=prior_context,
-                current_round=round_num,
-                total_rounds=rounds,
-                inner_attempt=used_attempt,
-                total_inner_attempts=INNER_LOOP_MAX_ATTEMPTS,
-            )
-            print(f"  ✓ [{agent_num}] {agent_role}")
-            prior_context[agent_num] = a_output
-            agent_usage[agent_num] = a_usage
-
-        # Assemble results
-        round_result: dict[int | str, Any] = {
-            0: best_attempt["a0"],
-            1: best_attempt["a1"],
-            2: best_attempt["a2"],
-        }
-        for agent_num in range(3, 7):
-            round_result[agent_num] = prior_context[agent_num]
-
-        # Compute tags
-        tags = _compute_tags(round_result)
-        round_result["_tags"] = tags
-        round_result["_usage"] = agent_usage
-        round_result["_gen_meta"] = {
-            "round": round_num,
-            "attempt": used_attempt,
-            "forced_new_idea": force_completely_new_idea,
-        }
-
-        # Determine name for this round's results
-        base_name = given_name or startup_name
-        round_key = f"{_sanitize_filename(base_name)}_r{round_num}"
-        all_results[round_key] = round_result
-
-        weighted = best_attempt["score"]
-        tier = best_attempt["a2"].get("score_tier", "N/A")
-        verdict = best_attempt["a2"].get("verdict", "N/A")
-        score_progression.append((round_key, weighted, tier))
-
-        print(f"\n  {'─'*50}")
-        print(f"  ✓ OUTER ROUND {round_num} COMPLETE  [{_elapsed()}]")
-        print(f"    {startup_name}")
-        print(f"    Score: {weighted}/80 ({tier}) | Verdict: {verdict}")
-        print(f"  {'─'*50}")
-
-        # Extract Agent 6 feedback for next outer round
-        prior_evaluation = prior_context.get(6)
-        prior_score = best_attempt["a2"]
-
-        # Strong-positive round resets streak; everything else increments it.
-        verdict = str(prior_score.get("verdict", ""))
-        recommendation = str((prior_evaluation or {}).get("recommendation", ""))
-        is_strong_positive = (
-            verdict == Verdict.TOP_VC_CANDIDATE.value
-            and recommendation == Recommendation.CONTINUE.value
-        )
-        if is_strong_positive:
-            non_strong_positive_streak = 0
-        else:
-            non_strong_positive_streak += 1
-
-        # Add to Hall of Fame if score meets threshold
-        if config.get("enable_hall_of_fame", True):
-            from src.db import insert_to_hall_of_fame
-            weighted = best_attempt["score"]
-            if weighted >= 60:  # HALL_OF_FAME_MIN_SCORE threshold
-                score_tier = best_attempt["a2"].get("score_tier", "Medium")
-                insert_to_hall_of_fame(
-                    batch_id=batch_id,
-                    startup_name=startup_name,
-                    weighted_score=weighted,
-                    score_tier=score_tier,
-                    agent0_output=best_attempt["a0"],
-                    agent2_output=best_attempt["a2"],
-                )
-                print(f"  🏆 Added to Hall of Fame (score: {weighted}/80)")
-    else:
-        non_strong_positive_streak += 1
-
-    # --- Agent 7: Rank all generated startups ---
-    ranking_output = None
-    ranking_usage = None
-    if len(all_results) > 1:
-        print(f"\n{'='*60}")
-        print(f"  AGENT 7 — Ranking {len(all_results)} startups  [{_elapsed()}]")
-        print(f"{'='*60}\n")
-
-        from crewai import Crew as _Crew
-        from src.agents import create_agent as _create_agent
-        from src.config import get_model_for_agent as _get_model
-        from src.tasks import create_ranking_task
-
-        # Build batch_data in the format create_ranking_task expects
-        batch_data = []
-        for name, outputs in all_results.items():
-            agent_outputs = {k: v for k, v in outputs.items() if isinstance(k, int)}
-            batch_data.append({"startup_name": name, "outputs": agent_outputs})
-
-        model_name_7 = _get_model(7)
-        agent7 = _create_agent(7)
-        ranking_task = create_ranking_task(agent7, batch_data)
-
-        if not _supports_structured_output(model_name_7):
-            from crewai import Task as _Task
-
-            ranking_task = _Task(
-                description=ranking_task.description,
-                expected_output=ranking_task.expected_output,
-                agent=agent7,
-            )
-
-        crew7 = _Crew(agents=[agent7], tasks=[ranking_task], verbose=False)
-
-        stop_event = threading.Event()
-        agent_start = time.time()
-        timer_thread = threading.Thread(
-            target=_show_agent_timer,
-            args=(7, model_name_7, stop_event),
-            daemon=True,
-        )
-        timer_thread.start()
-
-        try:
-            try:
-                ranking_result = crew7.kickoff()
-            except Exception as exc:
-                # MiniMax/Instructor may fail structured output on multiple tool calls.
-                exc_msg_l = str(exc).lower()
-                if (
-                    "multiple tool calls" in exc_msg_l
-                    or "instructor does not support multiple tool calls" in exc_msg_l
-                    or "instructorretryexception" in type(exc).__name__.lower()
-                ):
-                    from crewai import Task as _Task
-
-                    print("\n    ⚠ Structured ranking output failed, retrying with raw output...")
-                    ranking_task_fallback = _Task(
-                        description=ranking_task.description,
-                        expected_output=ranking_task.expected_output,
-                        agent=agent7,
-                    )
-                    crew7_fallback = _Crew(agents=[agent7], tasks=[ranking_task_fallback], verbose=False)
-                    ranking_result = crew7_fallback.kickoff()
-                else:
-                    raise
-        finally:
-            stop_event.set()
-            timer_thread.join(timeout=2)
-
-        duration = time.time() - agent_start
-        mins, secs = divmod(int(duration), 60)
-        print(f"    ✓ Agent 7 (Ranking Committee) completed in {mins}m {secs}s")
-
-        from src.models import Agent7Output
-        if ranking_result.pydantic:
-            ranking_output = ranking_result.pydantic.model_dump(mode="json")
-        else:
-            try:
-                parsed = Agent7Output.model_validate_json(ranking_result.raw)
-                ranking_output = parsed.model_dump(mode="json")
-            except Exception:
-                ranking_output = {"raw_output": ranking_result.raw}
-
-        usage_7 = ranking_result.token_usage
-        ranking_usage = {
-            7: {
-                "model": model_name_7,
-                "prompt_tokens": getattr(usage_7, "prompt_tokens", 0),
-                "completion_tokens": getattr(usage_7, "completion_tokens", 0),
-                "total_tokens": getattr(usage_7, "total_tokens", 0),
-            }
-        }
-
-        # Print ranking results
-        if isinstance(ranking_output, dict) and "ranked_startups" in ranking_output:
-            print(f"\n  Ranking:")
-            for entry in ranking_output["ranked_startups"]:
-                print(f"    #{entry.get('rank', '?')}  {entry.get('name', '?')} — {entry.get('score', '?')} ({entry.get('label', '?')})")
-                print(f"        {entry.get('summary', '')}")
-
-    # --- Final summary ---
-    total_elapsed = int(time.time() - pipeline_start)
-    mins, secs = divmod(total_elapsed, 60)
-
-    print(f"\n\n{'#'*60}")
-    print(f"  SCORE PROGRESSION")
-    print(f"{'#'*60}\n")
-    for name, score, tier in score_progression:
-        print(f"  {name}: {score}/80 ({tier})")
-
-    print(f"\n  Total time: {mins}m {secs}s")
-
-    total_agent_runs = sum(attempts * 3 + 4 for attempts in actual_attempts_per_round)
-    if ranking_output is not None:
-        total_agent_runs += 1
-    
-    out_dir = export_results(
-        batch_id, all_results, ranking_output, ranking_usage,
-        execution_metrics={
-            "outer_rounds": rounds,
-            "max_inner_attempts": INNER_LOOP_MAX_ATTEMPTS,
-            "actual_attempts_per_round": actual_attempts_per_round,
-            "total_attempts_made": total_attempts_made,
-            "total_agent_runs": total_agent_runs,
-            "startup_count": len(all_results),
-            "has_ranking": ranking_output is not None,
-        },
-        is_generation=True
-    )
-    print(f"\n  Results saved to: {out_dir}")
-
-
 def main() -> None:
     _ensure_supported_python()
     from src.pipeline import run_batch, run_single
@@ -2349,74 +1496,6 @@ def main() -> None:
 
         out_dir = export_results(batch_id, {name: result})
         print(f"\nResults saved to: {out_dir}")
-
-    elif mode == "generate":
-        gen_config = _parse_generate_args(args[1:])
-        run_generate(gen_config)
-
-    elif mode == "hall-of-fame":
-        # Hall of Fame management commands
-        if len(args) < 2:
-            print("Usage: python main.py hall-of-fame <command>")
-            print("")
-            print("Commands:")
-            print("  list                  List all Hall of Fame entries")
-            print("  stats                 Show Hall of Fame statistics")
-            print("  clear                 Clear all Hall of Fame entries")
-            print("  add <name> <score>    Manually add an entry")
-            sys.exit(1)
-        
-        hof_command = args[1]
-        
-        if hof_command == "list":
-            from src.db import get_top_ideas
-            entries = get_top_ideas(limit=20, min_score=0)
-            if not entries:
-                print("Hall of Fame is empty.")
-            else:
-                print(f"=== Hall of Fame ({len(entries)} entries) ===")
-                for i, entry in enumerate(entries, 1):
-                    print(f"{i}. {entry.get('startup_name', 'Unknown')}")
-                    print(f"   Score: {entry.get('weighted_score', 0):.1f}/80 ({entry.get('score_tier', 'N/A')})")
-                    print(f"   Batch: {entry.get('batch_id', 'N/A')}")
-                    print()
-        elif hof_command == "stats":
-            from src.db import get_hall_of_fame_stats
-            stats = get_hall_of_fame_stats()
-            print("=== Hall of Fame Statistics ===")
-            print(f"Total entries: {stats.get('count', 0)}")
-            print(f"Average score: {stats.get('avg_score', 0):.1f}/80")
-            print(f"Min score: {stats.get('min_score', 0):.1f}/80")
-            print(f"Max score: {stats.get('max_score', 0):.1f}/80")
-        elif hof_command == "clear":
-            from src.db import clear_hall_of_fame
-            confirm = input("Are you sure you want to clear all Hall of Fame entries? (yes/no): ")
-            if confirm.lower() == "yes":
-                clear_hall_of_fame()
-                print("Hall of Fame cleared.")
-            else:
-                print("Cancelled.")
-        elif hof_command == "add":
-            if len(args) < 4:
-                print("Usage: python main.py hall-of-fame add <name> <score>")
-                sys.exit(1)
-            from src.db import insert_to_hall_of_fame
-            name = args[2]
-            score = float(args[3])
-            tier = "Medium" if score < 70 else "High"
-            insert_to_hall_of_fame(
-                batch_id="manual",
-                startup_name=name,
-                weighted_score=score,
-                score_tier=tier,
-                agent0_output={"startup_name": name},
-                agent2_output={"weighted_total_score": score, "score_tier": tier},
-            )
-            print(f"Added '{name}' to Hall of Fame with score {score}/80")
-        else:
-            print(f"Unknown command: {hof_command}")
-            sys.exit(1)
-        return
 
     elif mode == "batch":
         if len(args) < 2:
@@ -2505,22 +1584,7 @@ def main() -> None:
         print("Usage:")
         print("  python main.py                     # Process CourseDocs")
         print("  python main.py single <file>       # Process one submission")
-        print("  python main.py batch <directory>   # Process multiple + rank")
-        print("  python main.py generate [options]  # Generate & evaluate startup ideas")
-        print("  python main.py hall-of-fame <cmd>  # Hall of Fame management")
-        print("")
-        print("Generate options:")
-        print("  --rounds N          Number of outer loop rounds (default: 3)")
-        print("  --name NAME         Base name for output folders")
-        print("  --team-size N       Team size (default: 1)")
-        print("  --experience TEXT   Founder experience (default: none)")
-        print("  --network TEXT      Founder network (default: none)")
-        print("  --availability PCT  Availability (default: 100%)")
-        print("  --locale TEXT       Location (default: Barcelona, Spain)")
-        print("  --capital TEXT      Capital level (default: Very low)")
-        print("  --traction TEXT     Current traction (default: zero)")
-        print("  --languages TEXT    Languages spoken (default: English)")
-        print("  --industry TEXT     Target industry (default: Unspecified)")
+        print("  python main.py batch <directory>  # Process multiple + rank")
         sys.exit(1)
 
 

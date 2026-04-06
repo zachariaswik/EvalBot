@@ -8,7 +8,6 @@ from .config import AGENTS_DIR, LLM_TIMEOUT, OLLAMA_NUM_CTX, get_model_for_agent
 
 # Agent metadata: number -> (role, goal)
 _AGENT_META: dict[int, tuple[str, str]] = {
-    0: ("Startup Idea Generator", "Generate a startup idea optimized to score well in venture evaluation"),
     1: ("Intake Parser", "Convert raw startup submissions into a clean, standardized startup brief"),
     2: ("Unified Venture Analyst", "Determine whether the startup is worth pursuing as a venture-scale company"),
     3: ("Market & Competition Analyst", "Assess market attractiveness and competitive landscape"),
@@ -92,6 +91,8 @@ def create_agent(
         is_rerun: If True (feedback-loop re-run), config may select
                   a different model via RERUN_MODEL.
     """
+    if agent_number < 1 or agent_number > 7:
+        raise ValueError(f"Agent number must be 1-7, got {agent_number}")
     role, goal = _AGENT_META[agent_number]
     backstory = _load_prompt(agent_number)
     if llm is None:
