@@ -363,7 +363,6 @@ python main.py single Startups/FailedStartupName/
 ## 📚 Documentation
 
 - [`agent_models.md`](agent_models.md) — Detailed model recommendations and cost analysis
-- [`REMOVAL_SUMMARY.md`](REMOVAL_SUMMARY.md) — Generator feature removal summary
 - [`RETRY_LOGGING.md`](RETRY_LOGGING.md) — Retry and fallback system details
 
 ## 📄 License
