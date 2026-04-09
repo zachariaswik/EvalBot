@@ -14,7 +14,7 @@ certifi==2026.2.25
 cffi==2.0.0
 charset-normalizer==3.4.6
 chromadb==1.1.1
-click==8.1.8
+click>=8.1.7
 crewai==1.12.2
 cryptography==46.0.6
 deprecation==2.1.0
@@ -146,12 +146,13 @@ uc-micro-py==2.0.0
 uritemplate==4.2.0
 urllib3==2.6.3
 uv==0.9.30
-uvicorn==0.42.0
+uvicorn[standard]>=0.30.0
 uvloop==0.22.1
 watchfiles==1.1.1
 websocket-client==1.9.0
 websockets==16.0
 yarl==1.23.0
 zipp==3.23.0
-reflex==0.8.28.post1
-reflex-hosting-cli==0.1.62
+# reflex removed - causes complex dependency conflicts, manage separately if needed
+# reflex==0.8.28.post1
+# reflex-hosting-cli==0.1.62
