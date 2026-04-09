@@ -15,7 +15,14 @@ from __future__ import annotations
 import json
 
 import pytest
-import reflex as rx
+try:
+    import reflex as rx
+    HAS_REFLEX = True
+except ImportError:
+    HAS_REFLEX = False
+    rx = None
+
+pytestmark = pytest.mark.skipif(not HAS_REFLEX, reason="reflex not installed")
 
 
 # ── Page compilation ──────────────────────────────────────────────────────────
