@@ -128,6 +128,45 @@ GROQ_API_KEY=...
 
 The `.gitignore` excludes `.env`, `*.db`, `output/`, `Startups/`, and `*.log`.
 
+## Deployment (DigitalOcean — 167.99.43.130)
+
+**SSH alias** (configured in `~/.ssh/config` on local machine):
+```bash
+ssh evalbot          # connects as root@167.99.43.130 using ~/.ssh/digitalOcean1
+```
+
+**Server layout:**
+- App: `/opt/evalbot/` (git clone of this repo)
+- Venv: `/opt/evalbot/.venv/` (Python 3.12)
+- API keys: `/opt/evalbot/.env` (never committed — fill in manually after clone)
+- Inputs: `/opt/evalbot/Startups/` (upload batch dirs here)
+- Outputs: `/opt/evalbot/output/`
+
+**Deploy updates** (pull code + install deps + run tests):
+```bash
+ssh evalbot "bash /opt/evalbot/deploy.sh"
+```
+
+**Run a batch from the server:**
+```bash
+ssh evalbot
+cd /opt/evalbot
+source .venv/bin/activate
+python main.py batch Startups/ 2>&1 | tee output.log
+```
+
+**Adding a cron job** (future — runs batch nightly at 2 AM):
+```bash
+# On the server:
+crontab -e
+# Add:  0 2 * * * cd /opt/evalbot && .venv/bin/python main.py batch Startups/ >> /var/log/evalbot.log 2>&1
+```
+
+**Note on `requirements.txt`**: generated from the local `.venv313` and committed to the repo. When adding new packages locally, regenerate with:
+```bash
+source .venv313/bin/activate && pip freeze > requirements.txt
+```
+
 ## Python Version
 
 Python 3.13 is required. `main.py` auto-relaunches with `.venv313/bin/python` if Python 3.14+ is detected.
