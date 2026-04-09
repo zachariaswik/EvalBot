@@ -35,6 +35,10 @@ EvalBot uses **7 specialized agents** that run sequentially:
 - **Automatic Retry & Fallback**: Handles API failures gracefully with configurable fallback models
 - **Database Tracking**: SQLite database stores all outputs, iterations, and feedback events
 
+## 🌐 Web Interface
+
+Browse evaluation results at **http://167.99.43.130** (internal access only — IP allowlisted + Basic Auth required).
+
 ## 🚀 Quick Start
 
 ### Prerequisites
