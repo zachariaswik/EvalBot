@@ -28,23 +28,28 @@ BORDER_2 = "#c2cfe4"
 
 
 def rank_badge(idx: int) -> rx.Component:
-    if idx == 0:
-        return rx.box(
+    return rx.cond(
+        idx == 0,
+        rx.box(
             rx.text("1", style={"fontFamily": "'Georgia', serif", "fontSize": "11px", "fontWeight": "900", "color": "white", "lineHeight": "1"}),
             style={"width": "26px", "height": "26px", "borderRadius": "50%", "background": BLUE, "display": "flex", "alignItems": "center", "justifyContent": "center"},
-        )
-    elif idx == 1:
-        return rx.box(
-            rx.text("2", style={"fontFamily": "'Georgia', serif", "fontSize": "11px", "fontWeight": "900", "color": TEXT_2, "lineHeight": "1"}),
-            style={"width": "26px", "height": "26px", "borderRadius": "50%", "background": SURFACE_3, "border": f"1.5px solid {BORDER_2}", "display": "flex", "alignItems": "center", "justifyContent": "center"},
-        )
-    elif idx == 2:
-        return rx.box(
-            rx.text("3", style={"fontFamily": "'Georgia', serif", "fontSize": "11px", "fontWeight": "900", "color": GOLD, "lineHeight": "1"}),
-            style={"width": "26px", "height": "26px", "borderRadius": "50%", "background": GOLD_BG, "border": "1.5px solid rgba(168,88,0,0.2)", "display": "flex", "alignItems": "center", "justifyContent": "center"},
-        )
-    else:
-        return rx.text(str(idx + 1), style={"fontFamily": "'Courier New', monospace", "fontSize": "12px", "color": TEXT_4, "fontWeight": "500"})
+        ),
+        rx.cond(
+            idx == 1,
+            rx.box(
+                rx.text("2", style={"fontFamily": "'Georgia', serif", "fontSize": "11px", "fontWeight": "900", "color": TEXT_2, "lineHeight": "1"}),
+                style={"width": "26px", "height": "26px", "borderRadius": "50%", "background": SURFACE_3, "border": f"1.5px solid {BORDER_2}", "display": "flex", "alignItems": "center", "justifyContent": "center"},
+            ),
+            rx.cond(
+                idx == 2,
+                rx.box(
+                    rx.text("3", style={"fontFamily": "'Georgia', serif", "fontSize": "11px", "fontWeight": "900", "color": GOLD, "lineHeight": "1"}),
+                    style={"width": "26px", "height": "26px", "borderRadius": "50%", "background": GOLD_BG, "border": "1.5px solid rgba(168,88,0,0.2)", "display": "flex", "alignItems": "center", "justifyContent": "center"},
+                ),
+                rx.text(str(idx + 1), style={"fontFamily": "'Courier New', monospace", "fontSize": "12px", "color": TEXT_4, "fontWeight": "500"}),
+            ),
+        ),
+    )
 
 
 def startup_score_row(s: dict, idx: int) -> rx.Component:
@@ -58,7 +63,7 @@ def startup_score_row(s: dict, idx: int) -> rx.Component:
         rx.el.td(
             rx.link(
                 s["name"],
-                href="/batch/" + BatchState.current_batch_id + "/" + s["name"],
+                href=f"/batch/{BatchState.current_batch_id}/{s['name']}",
                 style={"fontSize": "14px", "fontWeight": "700", "color": TEXT, "textDecoration": "none", "_hover": {"color": BLUE}},
             ),
             style={"padding": "14px 24px"},
@@ -100,7 +105,7 @@ def startup_score_row(s: dict, idx: int) -> rx.Component:
             "transition": "background 0.12s",
             "_hover": {"background": SURFACE_2},
         },
-        on_click=rx.redirect("/batch/" + BatchState.current_batch_id + "/" + s["name"]),
+        on_click=rx.redirect(f"/batch/{BatchState.current_batch_id}/{s['name']}"),
     )
 
 

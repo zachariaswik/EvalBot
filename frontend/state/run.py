@@ -69,6 +69,7 @@ class RunState(rx.State):
     show_log: bool = False
     run_error: str = ""
     filter_single: bool = False
+    has_multi_file: bool = False  # True when at least one startup has >1 file
     upload_error: str = ""
 
     # Progress tracking
@@ -89,6 +90,7 @@ class RunState(rx.State):
                     files = [f.name for f in d.iterdir() if f.is_file()]
                     staged.append({"name": d.name, "files": files})
         self.staged = staged
+        self.has_multi_file = any(len(s.get("files", [])) > 1 for s in staged)
 
         # Check for an in-progress run from state file
         state = _read_run_state()
@@ -134,6 +136,7 @@ class RunState(rx.State):
             self.staged = self.staged + [{"name": name, "files": saved}]
 
         self.new_startup_name = ""
+        self.has_multi_file = any(len(s.get("files", [])) > 1 for s in self.staged)
 
     @rx.event
     def remove_startup(self, name: str):
@@ -141,6 +144,7 @@ class RunState(rx.State):
         if target.exists() and target.is_dir():
             shutil.rmtree(target)
         self.staged = [s for s in self.staged if s["name"] != name]
+        self.has_multi_file = any(len(s.get("files", [])) > 1 for s in self.staged)
 
     @rx.event
     def toggle_log(self):
@@ -213,10 +217,15 @@ class RunState(rx.State):
                 nonlocal start_time
                 while True:
                     await asyncio.sleep(1)
-                    if start_time is not None:
+                    if start_time is None:
+                        continue
+                    # Skip update if client already disconnected (task cancelled)
+                    try:
                         elapsed = int(asyncio.get_event_loop().time() - start_time)
                         async with self:
                             self.progress_elapsed = elapsed
+                    except asyncio.CancelledError:
+                        break
 
             elapsed_task = asyncio.create_task(_tick_elapsed())
 
@@ -237,12 +246,22 @@ class RunState(rx.State):
                             data = json.loads(rest[colon + 1:])
                         except Exception:
                             data = {}
-                        await self._handle_progress(event_type, data, start_time)
+                        try:
+                            await self._handle_progress(event_type, data, start_time)
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception:
+                            pass
                         if event_type == "STARTUP_START":
                             start_time = asyncio.get_event_loop().time()
                 else:
-                    async with self:
-                        self.log_lines = self.log_lines + [line]
+                    try:
+                        async with self:
+                            self.log_lines = self.log_lines + [line]
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        pass
 
             elapsed_task.cancel()
             await proc.wait()

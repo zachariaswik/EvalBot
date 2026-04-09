@@ -80,11 +80,14 @@ def agent_bar(n: int) -> rx.Component:
 # ── Staged startup row ────────────────────────────────────────────────────────
 
 def staged_row(s: dict) -> rx.Component:
-    files_str = s["files"].join(" · ")
     return rx.hstack(
         rx.vstack(
             rx.text(s["name"], style={"fontSize": "13px", "fontWeight": "700", "color": TEXT}),
-            rx.text(files_str, style={"fontFamily": "'Courier New', monospace", "fontSize": "10px", "color": TEXT_3, "marginTop": "1px", "overflow": "hidden", "textOverflow": "ellipsis", "whiteSpace": "nowrap"}),
+            rx.cond(
+                s["files"],
+                rx.text("files", style={"fontFamily": "'Courier New', monospace", "fontSize": "10px", "color": TEXT_3, "marginTop": "1px"}),
+                rx.text("—", style={"fontFamily": "'Courier New', monospace", "fontSize": "10px", "color": TEXT_3, "marginTop": "1px"}),
+            ),
             spacing="0",
             align="start",
             flex="1",
@@ -676,22 +679,26 @@ def run_page() -> rx.Component:
                         spacing="2",
                         align="center",
                     ),
-                    rx.el.button(
-                        rx.cond(RunState.filter_single, "✓ Multi-file only", "Hide single-file"),
-                        on_click=RunState.toggle_filter,
-                        style={
-                            "fontSize": "11px",
-                            "fontWeight": "600",
-                            "padding": "4px 10px",
-                            "borderRadius": "5px",
-                            "border": "1.5px solid",
-                            "cursor": "pointer",
-                            "fontFamily": "'Plus Jakarta Sans', sans-serif",
-                            "transition": "all 0.15s",
-                            "color": rx.cond(RunState.filter_single, BLUE, TEXT_3),
-                            "background": rx.cond(RunState.filter_single, BLUE_BG, SURFACE_2),
-                            "borderColor": rx.cond(RunState.filter_single, "rgba(27,72,196,0.3)", BORDER_2),
-                        },
+                    rx.cond(
+                        RunState.has_multi_file,
+                        rx.el.button(
+                            rx.cond(RunState.filter_single, "✓ Multi-file only", "Hide single-file"),
+                            on_click=RunState.toggle_filter,
+                            style={
+                                "fontSize": "11px",
+                                "fontWeight": "600",
+                                "padding": "4px 10px",
+                                "borderRadius": "5px",
+                                "border": "1.5px solid",
+                                "cursor": "pointer",
+                                "fontFamily": "'Plus Jakarta Sans', sans-serif",
+                                "transition": "all 0.15s",
+                                "color": rx.cond(RunState.filter_single, BLUE, TEXT_3),
+                                "background": rx.cond(RunState.filter_single, BLUE_BG, SURFACE_2),
+                                "borderColor": rx.cond(RunState.filter_single, "rgba(27,72,196,0.3)", BORDER_2),
+                            },
+                        ),
+                        rx.box(),
                     ),
                     justify="between",
                     align="center",

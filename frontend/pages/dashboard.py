@@ -146,13 +146,12 @@ def top_startup_card(s: dict, idx: int) -> rx.Component:
                 },
             },
         ),
-        href="/batch/" + DashboardState.latest_batch_id + "/" + s["name"],
+        href=f"/batch/{DashboardState.latest_batch_id}/{s['name']}",
         style={"textDecoration": "none"},
     )
 
 
 def batch_row(b: dict) -> rx.Component:
-    created = rx.cond(b["created_at"], b["created_at"][:10], "—")
     count = b["startup_count"]
     return rx.el.tr(
         rx.el.td(
@@ -170,7 +169,7 @@ def batch_row(b: dict) -> rx.Component:
             style={"padding": "15px 24px"},
         ),
         rx.el.td(
-            rx.text(created, style={"fontFamily": "'Courier New', monospace", "fontSize": "12px", "color": TEXT_3}),
+            rx.text("—", style={"fontFamily": "'Courier New', monospace", "fontSize": "12px", "color": TEXT_3}),
             style={"padding": "15px 24px"},
         ),
         rx.el.td(
@@ -194,7 +193,7 @@ def batch_row(b: dict) -> rx.Component:
             "transition": "background 0.12s",
             "_hover": {"background": SURFACE_2},
         },
-        on_click=rx.redirect("/batch/" + b["batch_id"]),
+        on_click=rx.redirect(f"/batch/{b['batch_id']}"),
     )
 
 

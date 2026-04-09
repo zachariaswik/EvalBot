@@ -187,7 +187,7 @@ def product_tab() -> rx.Component:
             rx.hstack(
                 rx.text("AI Wrapper Risk", style={"fontSize": "11px", "fontWeight": "700", "letterSpacing": "0.08em", "textTransform": "uppercase", "color": TEXT_3}),
                 rx.box(
-                    rx.text(a4["wrapper_risk"].upper(), style={"fontSize": "12px", "fontWeight": "700", "color": wrapper_color}),
+                    rx.text(a4["wrapper_risk"], style={"fontSize": "12px", "fontWeight": "700", "color": wrapper_color, "textTransform": "uppercase"}),
                     style={"padding": "4px 10px", "borderRadius": "5px", "background": wrapper_bg},
                 ),
                 spacing="3",
