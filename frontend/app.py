@@ -34,8 +34,25 @@ OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output" / "Batch"
 STARTUPS_DIR = BASE_DIR.parent / "Startups"
 PROJECT_ROOT = BASE_DIR.parent
 _ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')
-jobs: dict[str, dict] = {}          # job_id → {status, lines, batch_id, lock}
+jobs: dict[str, dict] = {}          # job_id → {status, lines, batch_id}
 _run_lock: asyncio.Lock | None = None
+RUN_STATE_FILE = PROJECT_ROOT / "evalbot_run.json"
+
+
+def _write_run_state(job_id: str, status: str, batch_id: str | None = None) -> None:
+    RUN_STATE_FILE.write_text(
+        json.dumps({"job_id": job_id, "status": status, "batch_id": batch_id}),
+        encoding="utf-8",
+    )
+
+
+def _read_run_state() -> dict | None:
+    if not RUN_STATE_FILE.exists():
+        return None
+    try:
+        return json.loads(RUN_STATE_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return None
 
 
 def _get_run_lock() -> asyncio.Lock:
@@ -316,7 +333,20 @@ async def run_page(request: Request):
             if d.is_dir():
                 files = [f.name for f in d.iterdir() if f.is_file()]
                 staged.append({"name": d.name, "files": files})
-    return templates.TemplateResponse(request, "run.html", {"staged": staged})
+
+    # Check for an active or recently completed run to reconnect to
+    active_job: dict | None = None
+    state = _read_run_state()
+    if state:
+        job_id = state.get("job_id", "")
+        if job_id in jobs:
+            # Job is live in this server process — reconnect
+            active_job = {"job_id": job_id, "status": state["status"], "stale": False}
+        elif state.get("status") == "running":
+            # State file says running but server lost track (e.g. restart)
+            active_job = {"job_id": job_id, "status": "interrupted", "stale": True}
+
+    return templates.TemplateResponse(request, "run.html", {"staged": staged, "active_job": active_job})
 
 
 @app.post("/api/upload")
@@ -386,6 +416,7 @@ async def start_run(request: Request):
 
     job_id = str(uuid.uuid4())
     jobs[job_id] = {"status": "running", "lines": [], "batch_id": None}
+    _write_run_state(job_id, "running")
 
     async def _run():
         try:
@@ -414,14 +445,17 @@ async def start_run(request: Request):
                     jobs[job_id]["batch_id"] = batch_id
                     jobs[job_id]["status"] = "done"
                     jobs[job_id]["lines"].append(f"__DONE__:{batch_id or ''}")
+                    _write_run_state(job_id, "done", batch_id)
                 else:
                     jobs[job_id]["lines"].append(f"Process exited with code {proc.returncode}")
                     jobs[job_id]["status"] = "error"
                     jobs[job_id]["lines"].append("__ERROR__")
+                    _write_run_state(job_id, "error")
         except Exception as exc:
             jobs[job_id]["lines"].append(f"ERROR: {exc}")
             jobs[job_id]["status"] = "error"
             jobs[job_id]["lines"].append("__ERROR__")
+            _write_run_state(job_id, "error")
 
     asyncio.create_task(_run())
     return JSONResponse({"job_id": job_id})

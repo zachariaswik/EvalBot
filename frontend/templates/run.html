@@ -299,7 +299,37 @@ function runBatch() {
     _pollTimer: null,
     _countdownTimer: null,
 
-    init() {},
+    init() {
+      const activeJob = {{ (active_job | tojson) if active_job else 'null' }};
+      if (!activeJob) return;
+
+      if (activeJob.stale) {
+        // Server restarted mid-run; the subprocess was killed
+        this.runError = 'A previous run was interrupted (server restarted). Start a new run when ready.';
+        return;
+      }
+
+      // Reconnect to a live job
+      this._jobId = activeJob.job_id;
+      this.logVisible = true;
+      this.logOpen = false;
+
+      if (activeJob.status === 'running') {
+        this.running = true;
+        this._startSSE();
+      } else if (activeJob.status === 'done') {
+        // Already finished — just show results
+        fetch('/api/run/' + activeJob.job_id + '/status')
+          .then(r => r.json())
+          .then(d => this._finish(d.batch_id))
+          .catch(() => {});
+      } else if (activeJob.status === 'error') {
+        this.failed = true;
+        this.logOpen = true;
+        // Replay log lines from the in-memory store
+        this._startSSE();
+      }
+    },
 
     fmtElapsed(secs) {
       const m = Math.floor(secs / 60);
