@@ -520,7 +520,7 @@ def log_retry_event(
     conn.close()
 
 
-def get_retry_stats(batch_id: str, db_path: Path | None = None) -> dict[str, Any]:
+def get_retry_stats(batch_id: str, db_path: Path | None = None) -> dict:
     """Get retry/fallback statistics for a batch."""
     conn = _connect(db_path)
     
@@ -589,3 +589,32 @@ def get_retry_stats(batch_id: str, db_path: Path | None = None) -> dict[str, Any
             for row in error_types
         ],
     }
+
+
+# ---------------------------------------------------------------------------
+# Frontend query helpers
+# ---------------------------------------------------------------------------
+
+def list_batches(db_path: Path | None = None) -> list[dict]:
+    """Return all batches ordered by created_at desc, with startup count."""
+    conn = _connect(db_path)
+    rows = conn.execute(
+        "SELECT b.batch_id, b.created_at, b.description, COUNT(s.id) as startup_count "
+        "FROM batches b LEFT JOIN startups s ON b.batch_id = s.batch_id "
+        "GROUP BY b.batch_id "
+        "ORDER BY b.created_at DESC"
+    ).fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def list_startups(batch_id: str, db_path: Path | None = None) -> list[dict]:
+    """Return all startups in a batch with their pipeline_status."""
+    conn = _connect(db_path)
+    rows = conn.execute(
+        "SELECT startup_name, pipeline_status FROM startups "
+        "WHERE batch_id = ? ORDER BY startup_name",
+        (batch_id,),
+    ).fetchall()
+    conn.close()
+    return [dict(row) for row in rows]

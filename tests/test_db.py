@@ -418,3 +418,78 @@ class TestHallOfFame:
         assert len(ideas) <= 2
         names_in = {i["startup_name"] for i in ideas}
         assert "Co0" not in names_in  # lowest score evicted
+
+
+# ---------------------------------------------------------------------------
+# Frontend query helpers
+# ---------------------------------------------------------------------------
+
+class TestListBatches:
+    def test_returns_empty_when_no_batches(self, tmp_db):
+        from src.db import list_batches
+        result = list_batches(tmp_db)
+        assert result == []
+
+    def test_returns_batch_with_startup_count(self, tmp_db):
+        from src.db import list_batches
+        create_batch("b1", "Test batch", tmp_db)
+        upsert_startup("b1", "Acme", "text", tmp_db)
+        upsert_startup("b1", "Beta", "text", tmp_db)
+        result = list_batches(tmp_db)
+        assert len(result) == 1
+        assert result[0]["batch_id"] == "b1"
+        assert result[0]["startup_count"] == 2
+        assert result[0]["description"] == "Test batch"
+
+    def test_ordered_by_created_at_desc(self, tmp_db):
+        from src.db import list_batches
+        import time
+        create_batch("b1", "", tmp_db)
+        time.sleep(0.01)
+        create_batch("b2", "", tmp_db)
+        result = list_batches(tmp_db)
+        assert result[0]["batch_id"] == "b2"
+        assert result[1]["batch_id"] == "b1"
+
+    def test_batch_with_no_startups_has_count_zero(self, tmp_db):
+        from src.db import list_batches
+        create_batch("empty_batch", "", tmp_db)
+        result = list_batches(tmp_db)
+        assert result[0]["startup_count"] == 0
+
+
+class TestListStartups:
+    def test_returns_empty_when_no_startups(self, tmp_db):
+        from src.db import list_startups
+        create_batch("b1", "", tmp_db)
+        result = list_startups("b1", tmp_db)
+        assert result == []
+
+    def test_returns_startups_for_batch(self, tmp_db):
+        from src.db import list_startups
+        create_batch("b1", "", tmp_db)
+        upsert_startup("b1", "Acme", "text", tmp_db)
+        upsert_startup("b1", "Beta", "text", tmp_db)
+        result = list_startups("b1", tmp_db)
+        names = [r["startup_name"] for r in result]
+        assert "Acme" in names
+        assert "Beta" in names
+
+    def test_returns_pipeline_status(self, tmp_db):
+        from src.db import list_startups
+        create_batch("b1", "", tmp_db)
+        upsert_startup("b1", "Acme", "text", tmp_db)
+        update_startup_status("b1", "Acme", "completed", tmp_db)
+        result = list_startups("b1", tmp_db)
+        assert result[0]["pipeline_status"] == "completed"
+
+    def test_only_returns_startups_for_given_batch(self, tmp_db):
+        from src.db import list_startups
+        create_batch("b1", "", tmp_db)
+        create_batch("b2", "", tmp_db)
+        upsert_startup("b1", "Acme", "text", tmp_db)
+        upsert_startup("b2", "Other", "text", tmp_db)
+        result = list_startups("b1", tmp_db)
+        names = [r["startup_name"] for r in result]
+        assert "Acme" in names
+        assert "Other" not in names

@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}Roadmap — EvalBot{% endblock %}
+{% block content %}
+
+<div class="mb-8 text-center">
+  <h1 class="text-3xl font-bold" style="color:#1e3a5f;">Product Roadmap</h1>
+  <p class="text-gray-500 mt-2">Where EvalBot is going. Each feature below is designed, not just dreamed.</p>
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+
+  <!-- Feature 1: Analyst Profiles -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex flex-col">
+    <div class="flex items-center justify-between mb-4">
+      <div class="text-3xl">&#128100;</div>
+      <span class="text-xs font-bold px-2 py-1 rounded-full bg-blue-100 text-blue-700">Coming Q3 2025</span>
+    </div>
+    <h3 class="text-lg font-bold text-gray-900 mb-2">Analyst Profiles</h3>
+    <p class="text-gray-500 text-sm flex-1">Give each team member their own account, history, and performance metrics. Track which analyst sourced the best deals.</p>
+    <!-- Mockup -->
+    <div class="mt-4 rounded-lg bg-gray-50 border border-gray-200 p-3 opacity-60 select-none text-xs font-mono">
+      <div class="flex items-center gap-2 mb-2">
+        <div class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" style="background:#1e3a5f;color:#f5a623;">E</div>
+        <span class="font-semibold text-gray-700">Erik W.</span>
+        <span class="text-gray-400">&middot;</span>
+        <span class="text-gray-400">47 evals</span>
+      </div>
+      <div class="space-y-1 text-gray-500">
+        <div class="flex justify-between"><span>Avg Score</span><span class="font-medium text-gray-700">68.4</span></div>
+        <div class="flex justify-between"><span>VC Candidates</span><span class="font-medium text-emerald-600">8</span></div>
+        <div class="flex justify-between"><span>Invested</span><span class="font-medium text-blue-600">2</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Feature 2: Deal Flow Pipeline -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex flex-col">
+    <div class="flex items-center justify-between mb-4">
+      <div class="text-3xl">&#127940;</div>
+      <span class="text-xs font-bold px-2 py-1 rounded-full bg-orange-100 text-orange-700">Coming Q4 2025</span>
+    </div>
+    <h3 class="text-lg font-bold text-gray-900 mb-2">Deal Flow Pipeline</h3>
+    <p class="text-gray-500 text-sm flex-1">Kanban-style board to move startups from Submitted to Shortlisted to In Due Diligence to Passed / Invested.</p>
+    <div class="mt-4 rounded-lg bg-gray-50 border border-gray-200 p-3 opacity-60 select-none text-xs">
+      <div class="flex gap-2 overflow-hidden">
+        {% for col, color in [('Submitted', 'gray'), ('Shortlisted', 'blue'), ('Due Dil.', 'amber'), ('Invested', 'emerald')] %}
+        <div class="flex-1 min-w-0">
+          <div class="font-bold text-xs mb-1 truncate" style="color: {% if color == 'gray' %}#6b7280{% elif color == 'blue' %}#2563eb{% elif color == 'amber' %}#d97706{% else %}#059669{% endif %}">{{ col }}</div>
+          <div class="bg-white border border-gray-200 rounded p-1.5 text-gray-500 text-xs mb-1 truncate">Co. A</div>
+          {% if col == 'Shortlisted' %}<div class="bg-white border border-gray-200 rounded p-1.5 text-gray-500 text-xs mb-1 truncate">Co. B</div>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Feature 3: Portfolio Tracking -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex flex-col">
+    <div class="flex items-center justify-between mb-4">
+      <div class="text-3xl">&#128200;</div>
+      <span class="text-xs font-bold px-2 py-1 rounded-full bg-emerald-100 text-emerald-700">Coming Q1 2026</span>
+    </div>
+    <h3 class="text-lg font-bold text-gray-900 mb-2">Portfolio Tracking</h3>
+    <p class="text-gray-500 text-sm flex-1">Track invested startups post-close. Re-evaluate them automatically every quarter with updated data.</p>
+    <div class="mt-4 rounded-lg bg-gray-50 border border-gray-200 p-3 opacity-60 select-none text-xs">
+      <table class="w-full text-left">
+        <thead><tr><th class="text-gray-400 pb-1">Startup</th><th class="text-gray-400 pb-1">Status</th><th class="text-gray-400 pb-1">Last Eval</th></tr></thead>
+        <tbody class="text-gray-600">
+          <tr><td>Alpha Inc</td><td class="text-emerald-600">Growing</td><td>Jan 2025</td></tr>
+          <tr><td>BetaCo</td><td class="text-orange-500">Pivoting</td><td>Feb 2025</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Feature 4: Automated Reports -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex flex-col">
+    <div class="flex items-center justify-between mb-4">
+      <div class="text-3xl">&#128203;</div>
+      <span class="text-xs font-bold px-2 py-1 rounded-full bg-purple-100 text-purple-700">Coming Q1 2026</span>
+    </div>
+    <h3 class="text-lg font-bold text-gray-900 mb-2">Automated Reports</h3>
+    <p class="text-gray-500 text-sm flex-1">One-click PDF/email export of a full batch. Schedule weekly delivery to LPs and partners.</p>
+    <div class="mt-4 rounded-lg bg-gray-50 border border-gray-200 p-3 opacity-60 select-none text-xs">
+      <div class="flex items-center gap-2 mb-2 text-gray-600"><span>&#128196;</span><span class="font-medium">batch_12_report.pdf</span></div>
+      <div class="flex gap-2">
+        <button class="bg-gray-200 text-gray-600 rounded px-2 py-1 text-xs">Download PDF</button>
+        <button class="bg-blue-100 text-blue-700 rounded px-2 py-1 text-xs">Send to Partners</button>
+      </div>
+      <div class="mt-2 text-gray-400">&#128197; Scheduled: Mondays 9am</div>
+    </div>
+  </div>
+
+  <!-- Feature 5: Partner API -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex flex-col">
+    <div class="flex items-center justify-between mb-4">
+      <div class="text-3xl">&#128268;</div>
+      <span class="text-xs font-bold px-2 py-1 rounded-full bg-gray-100 text-gray-600">Coming Q2 2026</span>
+    </div>
+    <h3 class="text-lg font-bold text-gray-900 mb-2">Partner API</h3>
+    <p class="text-gray-500 text-sm flex-1">Founders submit pitches directly via a public API. Results are pushed back automatically within minutes.</p>
+    <div class="mt-4 rounded-lg bg-gray-900 border border-gray-700 p-3 opacity-70 select-none text-xs font-mono text-green-400">
+      <div>POST /api/v1/evaluate</div>
+      <div class="text-gray-500">{"startup": "Acme AI",</div>
+      <div class="text-gray-500"> "pitch_url": "..."}</div>
+      <div class="mt-1 text-emerald-400">&rarr; 200 {"score": 74,</div>
+      <div class="text-emerald-400"> "verdict": "Promising"}</div>
+    </div>
+  </div>
+
+  <!-- Feature 6: Cohort Analytics -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex flex-col">
+    <div class="flex items-center justify-between mb-4">
+      <div class="text-3xl">&#128202;</div>
+      <span class="text-xs font-bold px-2 py-1 rounded-full bg-gray-100 text-gray-600">Coming Q2 2026</span>
+    </div>
+    <h3 class="text-lg font-bold text-gray-900 mb-2">Cohort Analytics</h3>
+    <p class="text-gray-500 text-sm flex-1">Cross-batch trend charts: average score over time, verdict distribution shifts, sector patterns across cohorts.</p>
+    <div class="mt-4 rounded-lg bg-gray-50 border border-gray-200 p-3 opacity-60 select-none">
+      <canvas id="cohortMockChart" height="80"></canvas>
+      <script>
+        document.addEventListener('DOMContentLoaded', function() {
+          const ctx = document.getElementById('cohortMockChart').getContext('2d');
+          new Chart(ctx, {
+            type: 'line',
+            data: {
+              labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May'],
+              datasets: [{
+                data: [58, 62, 61, 67, 71],
+                borderColor: '#1e3a5f',
+                borderWidth: 2,
+                fill: true,
+                backgroundColor: 'rgba(30,58,95,0.08)',
+                tension: 0.4,
+                pointRadius: 3,
+              }]
+            },
+            options: { scales: { x: { display: false }, y: { display: false } }, plugins: { legend: { display: false } } }
+          });
+        });
+      </script>
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}

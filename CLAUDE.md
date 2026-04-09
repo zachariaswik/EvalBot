@@ -170,3 +170,35 @@ source .venv313/bin/activate && pip freeze > requirements.txt
 ## Python Version
 
 Python 3.13 is required. `main.py` auto-relaunches with `.venv313/bin/python` if Python 3.14+ is detected.
+
+## Frontend (Web UI)
+
+### Running locally
+```bash
+source .venv313/bin/activate
+uvicorn frontend.app:app --reload --port 8000
+# Open http://localhost:8000
+```
+
+### Architecture
+- `frontend/app.py` — FastAPI routes (4 pages: dashboard, batch, startup, roadmap)
+- `frontend/templates/` — Jinja2 templates (base, index, batch, startup, roadmap)
+- `frontend/static/evalbot.js` — Chart.js helpers (radar, bar, donut)
+- Data loading: queries SQLite (`evalbot.db`) first; falls back to `output/Batch/` JSON files
+
+### Design stack
+- Tailwind CSS (CDN), Alpine.js (CDN), Chart.js (CDN) — no build step required
+- Primary: `#1e3a5f` navy, Accent: `#f5a623` gold
+
+### Deployment
+```bash
+# Copy service file and enable on server (done by deploy.sh idempotently)
+cp evalbot-web.service /etc/systemd/system/
+systemctl enable evalbot-web && systemctl start evalbot-web
+
+# Check status
+ssh evalbot "systemctl status evalbot-web"
+```
+
+### Adding Jinja2 to requirements.txt
+Jinja2 is a FastAPI transitive dependency but pin it explicitly if not present.
