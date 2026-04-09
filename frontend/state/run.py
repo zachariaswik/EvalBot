@@ -69,8 +69,15 @@ class RunState(rx.State):
     show_log: bool = False
     run_error: str = ""
     filter_single: bool = False
-    has_multi_file: bool = False  # True when at least one startup has >1 file
     upload_error: str = ""
+
+    @rx.var
+    def has_multi_file(self) -> bool:
+        return any(len(s.get("files", [])) > 1 for s in self.staged)
+
+    @rx.event
+    def set_new_startup_name(self, value: str):
+        self.new_startup_name = value
 
     # Progress tracking
     progress_total: int = 0
@@ -90,7 +97,6 @@ class RunState(rx.State):
                     files = [f.name for f in d.iterdir() if f.is_file()]
                     staged.append({"name": d.name, "files": files})
         self.staged = staged
-        self.has_multi_file = any(len(s.get("files", [])) > 1 for s in staged)
 
         # Check for an in-progress run from state file
         state = _read_run_state()
@@ -136,7 +142,6 @@ class RunState(rx.State):
             self.staged = self.staged + [{"name": name, "files": saved}]
 
         self.new_startup_name = ""
-        self.has_multi_file = any(len(s.get("files", [])) > 1 for s in self.staged)
 
     @rx.event
     def remove_startup(self, name: str):
@@ -144,7 +149,6 @@ class RunState(rx.State):
         if target.exists() and target.is_dir():
             shutil.rmtree(target)
         self.staged = [s for s in self.staged if s["name"] != name]
-        self.has_multi_file = any(len(s.get("files", [])) > 1 for s in self.staged)
 
     @rx.event
     def toggle_log(self):

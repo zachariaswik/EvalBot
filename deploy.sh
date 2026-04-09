@@ -19,7 +19,7 @@ echo "--- Running tests ---"
 
 echo "--- Setting up nginx + Basic Auth (idempotent) ---"
 apt-get install -y nginx apache2-utils 2>/dev/null || true
-cp nginx-evalbot.conf /etc/nginx/sites-enabled/evalbot 2>/dev/null || true
+cp deploy/nginx-evalbot.conf /etc/nginx/sites-enabled/evalbot 2>/dev/null || true
 rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
 nginx -t 2>/dev/null && systemctl enable nginx 2>/dev/null && systemctl reload nginx 2>/dev/null || true
 if [ ! -f /etc/nginx/.htpasswd ]; then
@@ -29,7 +29,7 @@ fi
 
 echo "--- Installing web service (idempotent) ---"
 if [ ! -f /etc/systemd/system/evalbot-web.service ]; then
-    cp evalbot-web.service /etc/systemd/system/ 2>/dev/null || true
+    cp deploy/evalbot-web.service /etc/systemd/system/ 2>/dev/null || true
     systemctl daemon-reload 2>/dev/null || true
     systemctl enable evalbot-web 2>/dev/null || true
 fi

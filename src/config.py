@@ -1,7 +1,7 @@
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-AGENTS_DIR = PROJECT_ROOT
+AGENTS_DIR = PROJECT_ROOT / "agents"
 COURSE_DOCS_DIR = PROJECT_ROOT / "CourseDocs"
 DB_PATH = PROJECT_ROOT / "evalbot.db"
 

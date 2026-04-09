@@ -1,12 +1,12 @@
+# Python compiled files
 *.py[cod]
-.web
-.states
-assets/external/
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+
 # Environment variables (secrets — never commit)
 .env
-
-*.mov
-*.m4v
 
 # Database files (local only)
 *.db
@@ -16,28 +16,33 @@ assets/external/
 # Pipeline output (JSON results)
 output/
 
-
 # Log files
 *.log
 
 # Startup submissions (confidential data)
 Startups/
+testStartups/
+startup_docs/
 
-#Specific one-time scripts
+# Video files
+*.mov
+*.m4v
+
+# Reflex build artifacts
+.web
+.states
+assets/external/
+
+# macOS metadata
+.DS_Store
+
+# Temporary / local-only files
+uploaded_files/
+credentials.json
+.agent_memory.json
+
+# One-time scripts (not part of the codebase)
 download_cvs.py
 
-
-# Python cache
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-
-# Mini-Agent directories (local development)
+# Local development agent variants
 Mini-Agent/
-
-# Agent memory files (session state)
-.agent_memory.json
-testStartups/
-credentials.json
-startup_docs/

@@ -76,7 +76,7 @@ Startups/
 6. **Agent 6 – Recommendation Agent**: Pivot options, 30/90-day action plans
 7. **Agent 7 – Ranking Committee**: Comparative ranking across a batch (batch mode only)
 
-Each agent's system prompt lives in `Agent{N}/prompt.md`.
+Each agent's system prompt lives in `agents/Agent{N}/prompt.md`.
 
 **Feedback loop**: Agents 2–6 can request a re-run from an earlier agent if they detect insufficient data. The pipeline invalidates downstream outputs and re-executes from the requested agent. Maximum 18 iterations total.
 
@@ -88,7 +88,7 @@ Each agent's system prompt lives in `Agent{N}/prompt.md`.
 | `src/pipeline.py` | Core orchestration; sequential agent execution; feedback loop logic |
 | `src/config.py` | Per-agent model assignment, retry/fallback settings, timeouts |
 | `src/models.py` | Pydantic output schemas for all 7 agents; `FeedbackMixin` for re-run requests |
-| `src/agents.py` | CrewAI agent factory; loads prompts from `Agent{N}/prompt.md` |
+| `src/agents.py` | CrewAI agent factory; loads prompts from `agents/Agent{N}/prompt.md` |
 | `src/tasks.py` | CrewAI task creation with structured outputs |
 | `src/retry_utils.py` | Exponential backoff, fallback models, primary-model recovery logic |
 | `src/db.py` | SQLite schema and all persistence operations |
@@ -176,29 +176,30 @@ Python 3.13 is required. `main.py` auto-relaunches with `.venv313/bin/python` if
 ### Running locally
 ```bash
 source .venv313/bin/activate
-uvicorn frontend.app:app --reload --port 8000
-# Open http://localhost:8000
+reflex init        # first time only — downloads Node/React deps
+reflex run
+# Open http://localhost:3000
 ```
 
 ### Architecture
-- `frontend/app.py` — FastAPI routes (4 pages: dashboard, batch, startup, roadmap)
-- `frontend/templates/` — Jinja2 templates (base, index, batch, startup, roadmap)
-- `frontend/static/evalbot.js` — Chart.js helpers (radar, bar, donut)
+- `frontend/frontend.py` — Reflex app entry point; registers all 5 pages
+- `frontend/state/` — Reactive state classes (dashboard, batch, startup, run)
+- `frontend/pages/` — Page components (dashboard, batch, startup, run, roadmap)
+- `frontend/components/` — Shared components (navbar, badges, charts)
 - Data loading: queries SQLite (`evalbot.db`) first; falls back to `output/Batch/` JSON files
 
 ### Design stack
-- Tailwind CSS (CDN), Alpine.js (CDN), Chart.js (CDN) — no build step required
-- Primary: `#1e3a5f` navy, Accent: `#f5a623` gold
+- Reflex 0.8.x (compiles to React) — pure Python, no JS/HTML needed
+- Radix-based components: `rx.card`, `rx.table`, `rx.badge`, `rx.recharts`
 
 ### Deployment
 ```bash
-# Copy service file and enable on server (done by deploy.sh idempotently)
-cp evalbot-web.service /etc/systemd/system/
-systemctl enable evalbot-web && systemctl start evalbot-web
-
-# Check status
+# Service config lives in deploy/ — deployed by deploy.sh
 ssh evalbot "systemctl status evalbot-web"
+ssh evalbot "systemctl restart evalbot-web"
 ```
 
-### Adding Jinja2 to requirements.txt
-Jinja2 is a FastAPI transitive dependency but pin it explicitly if not present.
+### Key Reflex Constraints
+- Dynamic route args (`[batch_id]`, `[startup_name]`) inject into ALL state classes — never use those exact names as state vars; use `current_batch_id`, `current_startup_name`
+- Never use Python `>=`/`<=` on Reflex Var objects inside `rx.foreach` — precompute display values (e.g. `bar_color`) in state dicts
+- `@rx.var` computed vars update automatically; do not assign to them manually
