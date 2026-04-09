@@ -1,0 +1,18 @@
+name: Deploy to server
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 167.99.43.130
+          username: root
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: bash /opt/evalbot/deploy.sh
