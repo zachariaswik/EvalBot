@@ -6,6 +6,36 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 EvalBot is a multi-agent AI system that evaluates early-stage startup submissions. It runs 7 specialized CrewAI agents sequentially on each startup pitch, producing structured scores, verdicts, SWOT analyses, and strategic recommendations.
 
+## Testing
+
+All new code must be tested and all tests must pass before committing. Tests run without API keys — external dependencies (crewai, pdfplumber) are mocked in `tests/conftest.py`.
+
+```bash
+# Run the full test suite
+source .venv313/bin/activate
+pytest
+
+# Run a single test file
+pytest tests/test_db.py
+
+# Run a single test by name
+pytest tests/test_retry_utils.py::TestExecuteWithRetry::test_success_on_first_attempt -v
+```
+
+**When adding new features**: add tests alongside the code change. When a new `src/` module is created, create a corresponding `tests/test_<module>.py`. When adding new constants, functions, or edge-case handling, extend the relevant test file.
+
+**Coverage by file:**
+
+| Test file | Covers |
+|-----------|--------|
+| `tests/test_config.py` | Model resolution, fallback selection, constants |
+| `tests/test_models.py` | All 7 Pydantic output schemas, enums, validation |
+| `tests/test_db.py` | All SQLite operations incl. hall of fame and retry log |
+| `tests/test_docs.py` | Document loading (text, PDF markers, DOCX, directories) |
+| `tests/test_tasks.py` | Task description building, PDF extraction, task factory |
+| `tests/test_agents.py` | Agent metadata, prompt loading, agent factory |
+| `tests/test_retry_utils.py` | Retry logic, fallback, timeout, error classification |
+
 ## Running the Project
 
 ```bash

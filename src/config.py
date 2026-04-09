@@ -93,6 +93,15 @@ RECOVERY_CHECK_INTERVAL = 3
 # Cooldown period (seconds) before attempting to switch back to primary model
 RECOVERY_COOLDOWN = 60
 
+# ---------------------------------------------------------------------------
+# Hall of Fame Configuration (legacy feature)
+# ---------------------------------------------------------------------------
+# Maximum number of entries to keep in the hall of fame
+HALL_OF_FAME_SIZE = 50
+
+# Minimum weighted score required to enter the hall of fame (0-100 scale)
+HALL_OF_FAME_MIN_SCORE = 60
+
 
 def get_model_for_agent(agent_number: int, is_rerun: bool = False) -> str:
     """Resolve which LLM model string to use for a given agent.

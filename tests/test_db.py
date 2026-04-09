@@ -1,0 +1,420 @@
+"""Tests for src/db.py — SQLite persistence layer."""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+
+import pytest
+
+from src.db import (
+    clear_hall_of_fame,
+    create_batch,
+    get_all_batch_outputs,
+    get_current_outputs,
+    get_hall_of_fame_stats,
+    get_retry_stats,
+    get_top_ideas,
+    init_db,
+    insert_to_hall_of_fame,
+    invalidate_outputs_from,
+    log_feedback,
+    log_retry_event,
+    store_agent_output,
+    update_startup_status,
+    upsert_startup,
+)
+
+
+# ---------------------------------------------------------------------------
+# Schema initialisation
+# ---------------------------------------------------------------------------
+
+class TestInitDb:
+    def test_creates_all_tables(self, tmp_db):
+        conn = sqlite3.connect(str(tmp_db))
+        rows = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+        conn.close()
+        tables = {row[0] for row in rows}
+        assert {"batches", "startups", "agent_outputs", "feedback_log",
+                "hall_of_fame", "retry_log"}.issubset(tables)
+
+    def test_idempotent(self, tmp_path):
+        """Calling init_db twice on the same path does not raise."""
+        db = tmp_path / "idempotent.db"
+        init_db(db)
+        init_db(db)  # should not raise
+
+
+# ---------------------------------------------------------------------------
+# Batches
+# ---------------------------------------------------------------------------
+
+class TestCreateBatch:
+    def test_inserts_batch(self, tmp_db):
+        create_batch("batch_1", "my batch", tmp_db)
+        conn = sqlite3.connect(str(tmp_db))
+        row = conn.execute(
+            "SELECT batch_id, description FROM batches WHERE batch_id='batch_1'"
+        ).fetchone()
+        conn.close()
+        assert row is not None
+        assert row[0] == "batch_1"
+        assert row[1] == "my batch"
+
+    def test_idempotent(self, tmp_db):
+        """INSERT OR IGNORE means duplicate batch IDs do not raise."""
+        create_batch("batch_1", "first", tmp_db)
+        create_batch("batch_1", "second", tmp_db)  # should not raise
+        conn = sqlite3.connect(str(tmp_db))
+        count = conn.execute("SELECT COUNT(*) FROM batches").fetchone()[0]
+        conn.close()
+        assert count == 1
+
+
+# ---------------------------------------------------------------------------
+# Startups
+# ---------------------------------------------------------------------------
+
+class TestUpsertStartup:
+    def test_inserts_new_startup(self, tmp_db):
+        create_batch("b1", "", tmp_db)
+        upsert_startup("b1", "Acme", "raw text here", tmp_db)
+        conn = sqlite3.connect(str(tmp_db))
+        row = conn.execute(
+            "SELECT startup_name, raw_submission FROM startups WHERE startup_name='Acme'"
+        ).fetchone()
+        conn.close()
+        assert row is not None
+        assert row[0] == "Acme"
+        assert row[1] == "raw text here"
+
+    def test_updates_existing_startup(self, tmp_db):
+        create_batch("b1", "", tmp_db)
+        upsert_startup("b1", "Acme", "old text", tmp_db)
+        upsert_startup("b1", "Acme", "new text", tmp_db)
+        conn = sqlite3.connect(str(tmp_db))
+        rows = conn.execute(
+            "SELECT raw_submission FROM startups WHERE startup_name='Acme'"
+        ).fetchall()
+        conn.close()
+        assert len(rows) == 1, "No duplicate rows on update"
+        assert rows[0][0] == "new text"
+
+    def test_default_status_is_pending(self, tmp_db):
+        create_batch("b1", "", tmp_db)
+        upsert_startup("b1", "Acme", "text", tmp_db)
+        conn = sqlite3.connect(str(tmp_db))
+        row = conn.execute(
+            "SELECT pipeline_status FROM startups WHERE startup_name='Acme'"
+        ).fetchone()
+        conn.close()
+        assert row[0] == "pending"
+
+
+class TestUpdateStartupStatus:
+    def test_updates_status(self, tmp_db):
+        create_batch("b1", "", tmp_db)
+        upsert_startup("b1", "Acme", "text", tmp_db)
+        update_startup_status("b1", "Acme", "completed", tmp_db)
+        conn = sqlite3.connect(str(tmp_db))
+        row = conn.execute(
+            "SELECT pipeline_status FROM startups WHERE startup_name='Acme'"
+        ).fetchone()
+        conn.close()
+        assert row[0] == "completed"
+
+    def test_can_set_failed(self, tmp_db):
+        create_batch("b1", "", tmp_db)
+        upsert_startup("b1", "Acme", "text", tmp_db)
+        update_startup_status("b1", "Acme", "failed", tmp_db)
+        conn = sqlite3.connect(str(tmp_db))
+        row = conn.execute(
+            "SELECT pipeline_status FROM startups WHERE startup_name='Acme'"
+        ).fetchone()
+        conn.close()
+        assert row[0] == "failed"
+
+
+# ---------------------------------------------------------------------------
+# Agent outputs
+# ---------------------------------------------------------------------------
+
+class TestStoreAndRetrieveAgentOutput:
+    def test_basic_store_and_retrieve(self, tmp_db):
+        create_batch("b1", "", tmp_db)
+        data = {"startup_name": "Acme", "problem": "Big pain"}
+        store_agent_output("b1", "Acme", 1, json.dumps(data), 1, db_path=tmp_db)
+        outputs = get_current_outputs("b1", "Acme", tmp_db)
+        assert 1 in outputs
+        assert outputs[1]["problem"] == "Big pain"
+
+    def test_latest_iteration_is_current(self, tmp_db):
+        create_batch("b1", "", tmp_db)
+        store_agent_output("b1", "S1", 1, json.dumps({"v": 1}), 1, db_path=tmp_db)
+        store_agent_output("b1", "S1", 1, json.dumps({"v": 2}), 2, db_path=tmp_db)
+        outputs = get_current_outputs("b1", "S1", tmp_db)
+        assert outputs[1]["v"] == 2
+
+    def test_previous_iteration_marked_not_current(self, tmp_db):
+        create_batch("b1", "", tmp_db)
+        store_agent_output("b1", "S1", 2, json.dumps({"iter": 1}), 1, db_path=tmp_db)
+        store_agent_output("b1", "S1", 2, json.dumps({"iter": 2}), 2, db_path=tmp_db)
+        conn = sqlite3.connect(str(tmp_db))
+        rows = conn.execute(
+            "SELECT iteration, is_current FROM agent_outputs "
+            "WHERE batch_id='b1' AND startup_name='S1' AND agent_number=2"
+        ).fetchall()
+        conn.close()
+        current = [r for r in rows if r[1] == 1]
+        not_current = [r for r in rows if r[1] == 0]
+        assert len(current) == 1
+        assert current[0][0] == 2  # iteration 2 is current
+        assert len(not_current) == 1
+        assert not_current[0][0] == 1  # iteration 1 is archived
+
+    def test_multiple_agents(self, tmp_db):
+        create_batch("b1", "", tmp_db)
+        for agent in range(1, 4):
+            store_agent_output("b1", "S1", agent, json.dumps({"agent": agent}), 1, db_path=tmp_db)
+        outputs = get_current_outputs("b1", "S1", tmp_db)
+        assert set(outputs.keys()) == {1, 2, 3}
+
+    def test_empty_startup_returns_empty_dict(self, tmp_db):
+        create_batch("b1", "", tmp_db)
+        outputs = get_current_outputs("b1", "NoSuchStartup", tmp_db)
+        assert outputs == {}
+
+    def test_feedback_reason_stored(self, tmp_db):
+        create_batch("b1", "", tmp_db)
+        store_agent_output("b1", "S1", 1, json.dumps({}), 2,
+                           feedback_reason="Agent 3 requested re-run", db_path=tmp_db)
+        conn = sqlite3.connect(str(tmp_db))
+        row = conn.execute(
+            "SELECT feedback_reason FROM agent_outputs WHERE batch_id='b1'"
+        ).fetchone()
+        conn.close()
+        assert row[0] == "Agent 3 requested re-run"
+
+
+class TestInvalidateOutputsFrom:
+    def test_invalidates_agents_from_number_onwards(self, tmp_db):
+        create_batch("b1", "", tmp_db)
+        for agent in range(1, 6):
+            store_agent_output("b1", "S1", agent, json.dumps({"a": agent}), 1, db_path=tmp_db)
+
+        invalidate_outputs_from("b1", "S1", 3, tmp_db)
+
+        conn = sqlite3.connect(str(tmp_db))
+        rows = conn.execute(
+            "SELECT agent_number, is_current FROM agent_outputs "
+            "WHERE batch_id='b1' AND startup_name='S1'"
+        ).fetchall()
+        conn.close()
+
+        current = {r[0] for r in rows if r[1] == 1}
+        not_current = {r[0] for r in rows if r[1] == 0}
+        assert {1, 2} == current
+        assert {3, 4, 5} == not_current
+
+    def test_does_not_affect_other_startups(self, tmp_db):
+        create_batch("b1", "", tmp_db)
+        store_agent_output("b1", "S1", 1, json.dumps({"a": 1}), 1, db_path=tmp_db)
+        store_agent_output("b1", "S2", 1, json.dumps({"a": 1}), 1, db_path=tmp_db)
+        invalidate_outputs_from("b1", "S1", 1, tmp_db)
+
+        conn = sqlite3.connect(str(tmp_db))
+        row = conn.execute(
+            "SELECT is_current FROM agent_outputs WHERE startup_name='S2'"
+        ).fetchone()
+        conn.close()
+        assert row[0] == 1  # S2 agent 1 still current
+
+
+# ---------------------------------------------------------------------------
+# Batch outputs
+# ---------------------------------------------------------------------------
+
+class TestGetAllBatchOutputs:
+    def test_returns_all_startups(self, tmp_db):
+        create_batch("b1", "", tmp_db)
+        for name in ("Alpha", "Beta", "Gamma"):
+            store_agent_output("b1", name, 1, json.dumps({"name": name}), 1, db_path=tmp_db)
+        results = get_all_batch_outputs("b1", tmp_db)
+        names = {r["startup_name"] for r in results}
+        assert names == {"Alpha", "Beta", "Gamma"}
+
+    def test_returns_only_current_outputs(self, tmp_db):
+        create_batch("b1", "", tmp_db)
+        store_agent_output("b1", "S1", 1, json.dumps({"v": 1}), 1, db_path=tmp_db)
+        store_agent_output("b1", "S1", 1, json.dumps({"v": 2}), 2, db_path=tmp_db)  # overwrites
+        results = get_all_batch_outputs("b1", tmp_db)
+        assert len(results) == 1
+        assert results[0]["outputs"][1]["v"] == 2
+
+    def test_empty_batch_returns_empty_list(self, tmp_db):
+        create_batch("b1", "", tmp_db)
+        results = get_all_batch_outputs("b1", tmp_db)
+        assert results == []
+
+
+# ---------------------------------------------------------------------------
+# Feedback log
+# ---------------------------------------------------------------------------
+
+class TestLogFeedback:
+    def test_inserts_feedback_record(self, tmp_db):
+        create_batch("b1", "", tmp_db)
+        log_feedback("b1", "S1", 3, 1, "Insufficient market data", 2, tmp_db)
+        conn = sqlite3.connect(str(tmp_db))
+        row = conn.execute("SELECT * FROM feedback_log").fetchone()
+        conn.close()
+        assert row is not None
+
+    def test_fields_stored_correctly(self, tmp_db):
+        create_batch("b1", "", tmp_db)
+        log_feedback("b1", "Acme", 4, 2, "Need better team info", 3, tmp_db)
+        conn = sqlite3.connect(str(tmp_db))
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM feedback_log").fetchone()
+        conn.close()
+        assert row["from_agent"] == 4
+        assert row["to_agent"] == 2
+        assert row["reason"] == "Need better team info"
+        assert row["iteration"] == 3
+
+
+# ---------------------------------------------------------------------------
+# Retry log
+# ---------------------------------------------------------------------------
+
+class TestRetryLog:
+    def test_log_retry_event_inserts_record(self, tmp_db):
+        create_batch("b1", "", tmp_db)
+        log_retry_event("b1", "S1", 2, "primary/model", "fallback/model",
+                        3, True, False, "connection_reset", tmp_db)
+        conn = sqlite3.connect(str(tmp_db))
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM retry_log").fetchone()
+        conn.close()
+        assert row is not None
+        assert row["agent_number"] == 2
+        assert row["retry_count"] == 3
+        assert row["fallback_occurred"] == 1
+        assert row["recovery_occurred"] == 0
+        assert row["error_type"] == "connection_reset"
+
+    def test_get_retry_stats_empty_batch(self, tmp_db):
+        create_batch("b1", "", tmp_db)
+        stats = get_retry_stats("b1", tmp_db)
+        assert stats["total_events"] == 0
+        assert stats["fallback_count"] == 0
+
+    def test_get_retry_stats_aggregation(self, tmp_db):
+        create_batch("b1", "", tmp_db)
+        log_retry_event("b1", "S1", 1, "p", "p", 0, False, False, None, tmp_db)
+        log_retry_event("b1", "S1", 2, "p", "f", 3, True, False, "timeout", tmp_db)
+        log_retry_event("b1", "S1", 3, "p", "f", 2, True, True, "timeout", tmp_db)
+        stats = get_retry_stats("b1", tmp_db)
+        assert stats["total_events"] == 3
+        assert stats["fallback_count"] == 2
+        assert stats["recovery_count"] == 1
+        assert stats["total_retries"] == 5
+
+    def test_get_retry_stats_error_types(self, tmp_db):
+        create_batch("b1", "", tmp_db)
+        log_retry_event("b1", "S1", 1, "p", "p", 1, False, False, "timeout", tmp_db)
+        log_retry_event("b1", "S1", 2, "p", "p", 1, False, False, "timeout", tmp_db)
+        log_retry_event("b1", "S1", 3, "p", "p", 1, False, False, "connection_reset", tmp_db)
+        stats = get_retry_stats("b1", tmp_db)
+        error_map = {e["error_type"]: e["count"] for e in stats["error_types"]}
+        assert error_map.get("timeout") == 2
+        assert error_map.get("connection_reset") == 1
+
+    def test_get_retry_stats_per_agent(self, tmp_db):
+        create_batch("b1", "", tmp_db)
+        log_retry_event("b1", "S1", 2, "primary", "fallback", 3, True, False, None, tmp_db)
+        stats = get_retry_stats("b1", tmp_db)
+        agent_stats = stats["per_agent"]
+        assert len(agent_stats) == 1
+        assert agent_stats[0]["agent_number"] == 2
+        assert agent_stats[0]["fallbacks"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Hall of Fame
+# ---------------------------------------------------------------------------
+
+class TestHallOfFame:
+    def _make_outputs(self):
+        return (
+            {"startup_name": "Test", "problem": "Pain"},
+            {"verdict": "Top VC Candidate", "total_score": 85},
+        )
+
+    def test_insert_and_retrieve(self, tmp_db):
+        agent0, agent2 = self._make_outputs()
+        create_batch("b1", "", tmp_db)
+        insert_to_hall_of_fame("b1", "Acme", 80.0, "Tier A", agent0, agent2, tmp_db)
+        ideas = get_top_ideas(limit=5, db_path=tmp_db)
+        assert len(ideas) == 1
+        assert ideas[0]["startup_name"] == "Acme"
+        assert ideas[0]["weighted_score"] == 80.0
+
+    def test_min_score_threshold(self, tmp_db):
+        agent0, agent2 = self._make_outputs()
+        create_batch("b1", "", tmp_db)
+        # Score below HALL_OF_FAME_MIN_SCORE should not be stored
+        from src.config import HALL_OF_FAME_MIN_SCORE
+        insert_to_hall_of_fame("b1", "LowScore", HALL_OF_FAME_MIN_SCORE - 1, "Tier C",
+                               agent0, agent2, tmp_db)
+        ideas = get_top_ideas(limit=10, db_path=tmp_db)
+        names = [i["startup_name"] for i in ideas]
+        assert "LowScore" not in names
+
+    def test_returns_top_by_score(self, tmp_db):
+        agent0, agent2 = self._make_outputs()
+        create_batch("b1", "", tmp_db)
+        for score in [70.0, 90.0, 80.0]:
+            insert_to_hall_of_fame("b1", f"Co{score}", score, "Tier", agent0, agent2, tmp_db)
+        ideas = get_top_ideas(limit=3, db_path=tmp_db)
+        scores = [i["weighted_score"] for i in ideas]
+        assert scores == sorted(scores, reverse=True)
+
+    def test_clear_hall_of_fame(self, tmp_db):
+        agent0, agent2 = self._make_outputs()
+        create_batch("b1", "", tmp_db)
+        insert_to_hall_of_fame("b1", "Acme", 80.0, "Tier A", agent0, agent2, tmp_db)
+        cleared = clear_hall_of_fame(tmp_db)
+        assert cleared == 1
+        assert get_top_ideas(db_path=tmp_db) == []
+
+    def test_stats_empty(self, tmp_db):
+        stats = get_hall_of_fame_stats(tmp_db)
+        assert stats["count"] == 0
+
+    def test_stats_with_entries(self, tmp_db):
+        agent0, agent2 = self._make_outputs()
+        create_batch("b1", "", tmp_db)
+        insert_to_hall_of_fame("b1", "A", 75.0, "T", agent0, agent2, tmp_db)
+        insert_to_hall_of_fame("b1", "B", 85.0, "T", agent0, agent2, tmp_db)
+        stats = get_hall_of_fame_stats(tmp_db)
+        assert stats["count"] == 2
+        assert stats["min_score"] == 75.0
+        assert stats["max_score"] == 85.0
+
+    def test_size_limit_enforced(self, tmp_db, monkeypatch):
+        """When HOF exceeds HALL_OF_FAME_SIZE, lowest scores are evicted."""
+        import src.config as cfg
+        monkeypatch.setattr(cfg, "HALL_OF_FAME_SIZE", 2)
+        monkeypatch.setattr(cfg, "HALL_OF_FAME_MIN_SCORE", 0)
+        agent0, agent2 = self._make_outputs()
+        create_batch("b1", "", tmp_db)
+        for i, score in enumerate([65.0, 80.0, 90.0]):
+            insert_to_hall_of_fame("b1", f"Co{i}", score, "T", agent0, agent2, tmp_db)
+        ideas = get_top_ideas(limit=10, db_path=tmp_db)
+        assert len(ideas) <= 2
+        names_in = {i["startup_name"] for i in ideas}
+        assert "Co0" not in names_in  # lowest score evicted
