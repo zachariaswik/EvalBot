@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from enum import Enum
 import json
+import sys
 import re
 import shutil
 import threading
@@ -41,6 +42,25 @@ from .db import (
     upsert_startup,
 )
 from .models import AGENT_OUTPUT_MODELS, FeedbackMixin
+
+# ---------------------------------------------------------------------------
+# Progress signalling (parsed by the web UI log stream)
+# ---------------------------------------------------------------------------
+
+_AGENT_ROLES = {
+    1: "Intake Parser",
+    2: "Venture Analyst",
+    3: "Market & Competition Analyst",
+    4: "Product & Positioning Analyst",
+    5: "Founder Fit Analyst",
+    6: "Recommendation / Pivot Agent",
+    7: "Ranking Committee Agent",
+}
+
+
+def _progress(event: str, **kwargs: Any) -> None:
+    """Emit a structured progress line for the web UI to parse."""
+    print(f"PROGRESS:{event}:{json.dumps(kwargs)}", flush=True)
 from .retry_utils import execute_with_retry, get_fallback_stats, reset_fallback_state, reset_startup_timer, StartupTimeoutError
 from .tasks import create_ranking_task, create_task
 
@@ -623,6 +643,7 @@ class StartupEvalPipeline:
                 fallback_func = None
 
             print(f"  ⏱ Agent {agent_num} starting at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            _progress("AGENT_START", agent=agent_num, role=_AGENT_ROLES.get(agent_num, "Unknown"))
 
             # Start live counter thread
             stop_event = threading.Event()
@@ -705,6 +726,7 @@ class StartupEvalPipeline:
             agent_timings[agent_num] = agent_duration
             mins, secs = divmod(int(agent_duration), 60)
             print(f"  ✓ Agent {agent_num} completed in {mins}m {secs}s")
+            _progress("AGENT_DONE", agent=agent_num, role=_AGENT_ROLES.get(agent_num, "Unknown"), elapsed_s=int(agent_duration))
 
             # Capture token usage with actual model used (may differ from intended if fallback)
             usage = result.token_usage
@@ -892,17 +914,22 @@ def run_batch(
     # Run agents 1-6 for each startup
     all_results: dict[str, dict] = {}
     failed_startups: list[str] = []
-    for name, text in submissions.items():
+    n_total = len(submissions)
+    for idx, (name, text) in enumerate(submissions.items()):
         print(f"\n{'#'*60}")
         print(f"  Processing: {name}")
         print(f"{'#'*60}")
+        _progress("STARTUP_START", name=name, idx=idx + 1, total=n_total)
 
         # Reset per-startup timer so TOTAL_STARTUP_TIMEOUT is per-startup
         reset_startup_timer()
+        startup_wall_start = time.time()
 
         try:
             result = run_single(name, text, batch_id=bid)
             all_results[name] = result
+            _progress("STARTUP_DONE", name=name, idx=idx + 1, total=n_total,
+                      elapsed_s=int(time.time() - startup_wall_start))
         except StartupTimeoutError as e:
             # Startup exceeded total time budget — mark as failed and continue
             print(f"\n  ⏰ STARTUP TIMEOUT: {e.message}")

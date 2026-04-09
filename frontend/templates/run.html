@@ -1,0 +1,524 @@
+{% extends "base.html" %}
+{% block title %}Run Batch — EvalBot{% endblock %}
+
+{% block content %}
+<div x-data="runBatch()" x-init="init()">
+
+  <div class="mb-6">
+    <h1 class="text-2xl font-bold" style="color: #1e3a5f;">Run Batch</h1>
+    <p class="text-gray-500 text-sm mt-1">Upload startup pitch files and trigger the 7-agent pipeline.</p>
+  </div>
+
+  <!-- Upload form -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+    <h2 class="text-lg font-semibold mb-4" style="color: #1e3a5f;">Add Startup</h2>
+    <form @submit.prevent="uploadFiles" class="flex flex-col gap-4">
+      <div class="flex flex-col sm:flex-row gap-4">
+        <div class="flex-1">
+          <label class="block text-sm font-medium text-gray-700 mb-1">Startup Name</label>
+          <input
+            type="text"
+            x-model="newName"
+            placeholder="e.g. AcmeCorp"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400"
+            :disabled="running"
+          />
+        </div>
+        <div class="flex-1">
+          <label class="block text-sm font-medium text-gray-700 mb-1">Files (.pdf .docx .txt .md)</label>
+          <input
+            type="file"
+            x-ref="fileInput"
+            multiple
+            accept=".pdf,.docx,.txt,.md"
+            class="w-full text-sm text-gray-600 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-yellow-50 file:text-yellow-800 hover:file:bg-yellow-100"
+            :disabled="running"
+          />
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <button
+          type="submit"
+          class="px-5 py-2 rounded-lg text-sm font-medium text-white transition-colors"
+          style="background-color: #1e3a5f;"
+          :disabled="running || !newName.trim()"
+          :class="{'opacity-50 cursor-not-allowed': running || !newName.trim()}"
+        >
+          + Add Startup
+        </button>
+        <span x-show="uploadError" x-text="uploadError" class="text-red-600 text-sm"></span>
+      </div>
+    </form>
+  </div>
+
+  <!-- Staged list -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-lg font-semibold" style="color: #1e3a5f;">Staged Startups</h2>
+      <button
+        @click="filterSingle = !filterSingle"
+        class="text-xs px-3 py-1.5 rounded-lg border font-medium transition-colors"
+        :class="filterSingle
+          ? 'border-yellow-400 text-yellow-700 bg-yellow-50'
+          : 'border-gray-300 text-gray-500 bg-white hover:bg-gray-50'"
+      >
+        <span x-text="filterSingle ? 'Showing multi-file only' : 'Hide single-file'"></span>
+      </button>
+    </div>
+
+    <div x-show="staged.length === 0" class="text-gray-400 text-sm py-4 text-center">
+      No startups staged yet. Upload files above to get started.
+    </div>
+
+    <div class="grid gap-3">
+      <template x-for="s in staged.filter(s => !filterSingle || s.files.length > 1)" :key="s.name">
+        <div class="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3 border border-gray-200">
+          <div>
+            <span class="font-medium text-gray-800" x-text="s.name"></span>
+            <div class="text-xs text-gray-500 mt-0.5" x-text="s.files.join(', ')"></div>
+          </div>
+          <button
+            @click="removeStartup(s.name)"
+            class="text-red-400 hover:text-red-600 text-sm px-3 py-1 rounded transition-colors"
+            :disabled="running"
+            :class="{'opacity-50 cursor-not-allowed': running}"
+          >
+            Remove
+          </button>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- Run button -->
+  <div class="flex items-center gap-4 mb-6">
+    <button
+      @click="startRun"
+      class="px-8 py-3 rounded-xl text-white font-semibold text-base transition-all shadow-md"
+      style="background-color: #f5a623;"
+      :disabled="staged.length === 0 || running"
+      :class="{'opacity-50 cursor-not-allowed': staged.length === 0 || running, 'hover:opacity-90': staged.length > 0 && !running}"
+    >
+      <span x-show="!running">&#9654; Run Batch</span>
+      <span x-show="running" class="flex items-center gap-2">
+        <svg class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+        </svg>
+        Running…
+      </span>
+    </button>
+    <span x-show="runError" x-text="runError" class="text-red-600 text-sm"></span>
+  </div>
+
+  <!-- Progress panel (shown once run starts) -->
+  <div x-show="logVisible" class="mb-6 space-y-4">
+
+    <!-- Current startup card -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold" style="color: #1e3a5f;">Pipeline Progress</h2>
+        <span class="text-sm text-gray-500 font-mono" x-text="progress.total ? progress.currentIdx + ' / ' + progress.total + ' startups' : '…'"></span>
+      </div>
+
+      <!-- Overall progress bar -->
+      <template x-if="progress.total > 0">
+        <div class="mb-5">
+          <div class="flex justify-between text-xs text-gray-500 mb-1">
+            <span x-text="progress.completedStartups.length + ' completed'"></span>
+            <span x-text="Math.round(progress.completedStartups.length / progress.total * 100) + '%'"></span>
+          </div>
+          <div class="w-full bg-gray-200 rounded-full h-2.5">
+            <div
+              class="h-2.5 rounded-full transition-all duration-500"
+              style="background-color: #f5a623;"
+              :style="'width:' + Math.round(progress.completedStartups.length / progress.total * 100) + '%'"
+            ></div>
+          </div>
+          <div class="text-xs text-gray-400 mt-1" x-text="(progress.total - progress.completedStartups.length) + ' remaining'"></div>
+        </div>
+      </template>
+
+      <!-- Current startup info -->
+      <template x-if="progress.currentName">
+        <div class="bg-blue-50 border border-blue-100 rounded-lg p-4 mb-4">
+          <div class="flex items-start justify-between gap-4">
+            <div class="flex-1 min-w-0">
+              <div class="text-xs font-medium text-blue-500 uppercase tracking-wide mb-1">Now Processing</div>
+              <div class="font-semibold text-gray-900 text-base truncate" x-text="progress.currentName"></div>
+              <template x-if="progress.currentAgent">
+                <div class="mt-2 flex items-center gap-2">
+                  <span class="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full" style="background:#dbeafe;color:#1e40af;">
+                    <svg class="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
+                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+                    </svg>
+                    Agent <span x-text="progress.currentAgent"></span>
+                  </span>
+                  <span class="text-sm text-gray-600" x-text="progress.currentAgentRole"></span>
+                </div>
+              </template>
+              <!-- Agent 1-6 mini progress dots -->
+              <template x-if="progress.currentName">
+                <div class="flex gap-1.5 mt-3">
+                  <template x-for="n in [1,2,3,4,5,6]" :key="n">
+                    <div
+                      class="h-2 w-6 rounded-full transition-colors duration-300"
+                      :class="{
+                        'bg-emerald-400': progress.doneAgents.includes(n),
+                        'bg-blue-400 animate-pulse': progress.currentAgent === n,
+                        'bg-gray-200': !progress.doneAgents.includes(n) && progress.currentAgent !== n
+                      }"
+                      :title="'Agent ' + n"
+                    ></div>
+                  </template>
+                </div>
+              </template>
+            </div>
+            <div class="text-right shrink-0">
+              <div class="text-2xl font-mono font-bold" style="color:#1e3a5f;" x-text="fmtElapsed(progress.startupElapsed)"></div>
+              <div class="text-xs text-gray-400 mt-0.5">elapsed</div>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- Completed startups list -->
+      <template x-if="progress.completedStartups.length > 0">
+        <div>
+          <div class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Completed</div>
+          <div class="space-y-1.5">
+            <template x-for="s in progress.completedStartups" :key="s.name">
+              <div class="flex items-center justify-between bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+                <div class="flex items-center gap-2">
+                  <span class="text-emerald-500">&#10003;</span>
+                  <span class="text-sm font-medium text-gray-800" x-text="s.name"></span>
+                </div>
+                <span class="text-xs text-gray-400 font-mono" x-text="fmtElapsed(s.elapsed_s)"></span>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
+
+      <!-- Waiting state (before first PROGRESS line) -->
+      <template x-if="!progress.currentName && progress.completedStartups.length === 0">
+        <div class="text-gray-400 text-sm text-center py-2">Waiting for pipeline to start…</div>
+      </template>
+    </div>
+
+    <!-- Raw log (collapsible) -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      <button
+        @click="logOpen = !logOpen"
+        class="w-full flex items-center justify-between px-5 py-3 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+      >
+        <span>&#128221; Raw Log</span>
+        <span x-text="logOpen ? '▲' : '▼'" class="text-gray-400 text-xs"></span>
+      </button>
+      <div x-show="logOpen" x-transition>
+        <div
+          x-ref="logBox"
+          class="bg-gray-900 p-4 font-mono text-xs text-green-300 h-72 overflow-y-auto whitespace-pre-wrap"
+        >
+          <template x-for="(line, idx) in logLines" :key="idx">
+            <div x-text="line"></div>
+          </template>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Completion banner -->
+  <div x-show="done" class="bg-emerald-50 border border-emerald-200 rounded-xl p-6 text-center">
+    <p class="text-emerald-700 font-semibold text-lg mb-3">Batch complete!</p>
+    <template x-if="batchId">
+      <div>
+        <p class="text-emerald-600 text-sm mb-4">Redirecting to results in <span x-text="countdown"></span>s…</p>
+        <a
+          :href="'/batch/' + batchId"
+          class="inline-block px-6 py-2 rounded-lg text-white font-medium"
+          style="background-color: #1e3a5f;"
+        >
+          View Results &rarr;
+        </a>
+      </div>
+    </template>
+    <template x-if="!batchId">
+      <p class="text-emerald-600 text-sm">Results saved. <a href="/" class="underline">Go to dashboard</a> to view them.</p>
+    </template>
+  </div>
+
+  <!-- Error banner -->
+  <div x-show="failed" class="bg-red-50 border border-red-200 rounded-xl p-6 text-center">
+    <p class="text-red-700 font-semibold text-lg">Batch failed</p>
+    <p class="text-red-500 text-sm mt-2">Check the raw log above for details. Fix the issue and try again.</p>
+  </div>
+
+</div>
+
+<script>
+function runBatch() {
+  return {
+    // Upload state
+    newName: '',
+    uploadError: '',
+    filterSingle: false,
+
+    // Staged startups (pre-seeded from server, then updated client-side)
+    staged: {{ staged | tojson }},
+
+    // Run state
+    running: false,
+    logVisible: false,
+    logOpen: false,      // raw log collapsed by default
+    logLines: [],
+    done: false,
+    failed: false,
+    batchId: null,
+    runError: '',
+    countdown: 3,
+
+    // Structured progress
+    progress: {
+      total: 0,
+      currentIdx: 0,
+      currentName: '',
+      currentAgent: 0,
+      currentAgentRole: '',
+      doneAgents: [],
+      completedStartups: [],   // [{name, idx, elapsed_s}]
+      startupStartTime: null,
+      startupElapsed: 0,
+    },
+    _elapsedTimer: null,
+
+    // SSE / polling
+    _jobId: null,
+    _evtSource: null,
+    _pollTimer: null,
+    _countdownTimer: null,
+
+    init() {},
+
+    fmtElapsed(secs) {
+      const m = Math.floor(secs / 60);
+      const s = secs % 60;
+      return m > 0 ? `${m}m ${s}s` : `${s}s`;
+    },
+
+    async uploadFiles() {
+      this.uploadError = '';
+      const name = this.newName.trim();
+      const input = this.$refs.fileInput;
+      if (!name) { this.uploadError = 'Startup name is required.'; return; }
+      if (!input.files || input.files.length === 0) { this.uploadError = 'Select at least one file.'; return; }
+
+      const fd = new FormData();
+      fd.append('startup_name', name);
+      for (const f of input.files) fd.append('files', f);
+
+      try {
+        const res = await fetch('/api/upload', { method: 'POST', body: fd });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          this.uploadError = err.detail || 'Upload failed.';
+          return;
+        }
+        const data = await res.json();
+        const idx = this.staged.findIndex(s => s.name === data.startup_name);
+        if (idx >= 0) {
+          this.staged[idx].files = data.files;
+        } else {
+          this.staged.push({ name: data.startup_name, files: data.files });
+        }
+        this.newName = '';
+        input.value = '';
+      } catch (e) {
+        this.uploadError = 'Network error.';
+      }
+    },
+
+    async removeStartup(name) {
+      try {
+        const res = await fetch('/api/startup/' + encodeURIComponent(name), { method: 'DELETE' });
+        if (res.ok) {
+          this.staged = this.staged.filter(s => s.name !== name);
+        }
+      } catch (e) {}
+    },
+
+    async startRun() {
+      if (this.running || this.staged.length === 0) return;
+      this.running = true;
+      this.logVisible = true;
+      this.logLines = [];
+      this.done = false;
+      this.failed = false;
+      this.batchId = null;
+      this.runError = '';
+      this.progress = {
+        total: 0, currentIdx: 0, currentName: '', currentAgent: 0,
+        currentAgentRole: '', doneAgents: [], completedStartups: [],
+        startupStartTime: null, startupElapsed: 0,
+      };
+
+      const filteredNames = this.staged
+        .filter(s => !this.filterSingle || s.files.length > 1)
+        .map(s => s.name);
+
+      try {
+        const res = await fetch('/api/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ startup_names: filteredNames }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          this.runError = err.detail || 'Could not start batch.';
+          this.running = false;
+          return;
+        }
+        const data = await res.json();
+        this._jobId = data.job_id;
+        this._startSSE();
+      } catch (e) {
+        this.runError = 'Network error.';
+        this.running = false;
+      }
+    },
+
+    _handleLine(line) {
+      if (line.startsWith('__DONE__:')) {
+        this._finish(line.slice('__DONE__:'.length) || null);
+        return;
+      }
+      if (line === '__ERROR__') {
+        this._error();
+        return;
+      }
+      // Parse structured progress lines
+      if (line.startsWith('PROGRESS:')) {
+        const rest = line.slice('PROGRESS:'.length);
+        const colon = rest.indexOf(':');
+        if (colon >= 0) {
+          const event = rest.slice(0, colon);
+          try {
+            const data = JSON.parse(rest.slice(colon + 1));
+            this._handleProgress(event, data);
+          } catch (e) {}
+        }
+        return; // don't add to raw log
+      }
+      // Regular log line
+      this.logLines.push(line);
+      this._scrollLog();
+    },
+
+    _handleProgress(event, data) {
+      if (event === 'BATCH_START') {
+        this.progress.total = data.total;
+      } else if (event === 'STARTUP_START') {
+        this.progress.total = data.total;
+        this.progress.currentIdx = data.idx;
+        this.progress.currentName = data.name;
+        this.progress.currentAgent = 0;
+        this.progress.currentAgentRole = '';
+        this.progress.doneAgents = [];
+        this.progress.startupStartTime = Date.now();
+        this.progress.startupElapsed = 0;
+        // Start live elapsed clock
+        if (this._elapsedTimer) clearInterval(this._elapsedTimer);
+        this._elapsedTimer = setInterval(() => {
+          if (this.progress.startupStartTime) {
+            this.progress.startupElapsed = Math.floor((Date.now() - this.progress.startupStartTime) / 1000);
+          }
+        }, 1000);
+      } else if (event === 'AGENT_START') {
+        this.progress.currentAgent = data.agent;
+        this.progress.currentAgentRole = data.role;
+      } else if (event === 'AGENT_DONE') {
+        this.progress.doneAgents = [...this.progress.doneAgents, data.agent];
+        this.progress.currentAgent = 0;
+        this.progress.currentAgentRole = '';
+      } else if (event === 'STARTUP_DONE') {
+        if (this._elapsedTimer) clearInterval(this._elapsedTimer);
+        this.progress.completedStartups = [
+          ...this.progress.completedStartups,
+          { name: data.name, idx: data.idx, elapsed_s: data.elapsed_s }
+        ];
+        this.progress.currentName = '';
+        this.progress.currentAgent = 0;
+        this.progress.currentAgentRole = '';
+        this.progress.doneAgents = [];
+        this.progress.startupElapsed = 0;
+      }
+    },
+
+    _startSSE() {
+      const url = '/api/run/' + this._jobId + '/stream';
+      this._evtSource = new EventSource(url);
+      this._evtSource.onmessage = (evt) => this._handleLine(evt.data);
+      this._evtSource.onerror = () => {
+        this._evtSource.close();
+        this._startPolling();
+      };
+    },
+
+    _startPolling() {
+      this._pollTimer = setInterval(async () => {
+        try {
+          const res = await fetch('/api/run/' + this._jobId + '/status');
+          if (!res.ok) return;
+          const data = await res.json();
+          if (data.status === 'done') {
+            clearInterval(this._pollTimer);
+            this._finish(data.batch_id);
+          } else if (data.status === 'error') {
+            clearInterval(this._pollTimer);
+            this._error();
+          }
+        } catch (e) {}
+      }, 2000);
+    },
+
+    _finish(batchId) {
+      if (this._evtSource) this._evtSource.close();
+      if (this._pollTimer) clearInterval(this._pollTimer);
+      if (this._elapsedTimer) clearInterval(this._elapsedTimer);
+      this.running = false;
+      this.done = true;
+      this.batchId = batchId;
+      this.staged = [];
+      if (batchId) {
+        this.countdown = 3;
+        this._countdownTimer = setInterval(() => {
+          this.countdown--;
+          if (this.countdown <= 0) {
+            clearInterval(this._countdownTimer);
+            window.location.href = '/batch/' + batchId;
+          }
+        }, 1000);
+      }
+    },
+
+    _error() {
+      if (this._evtSource) this._evtSource.close();
+      if (this._pollTimer) clearInterval(this._pollTimer);
+      if (this._elapsedTimer) clearInterval(this._elapsedTimer);
+      this.running = false;
+      this.failed = true;
+      this.logOpen = true; // auto-open log on error so user sees what happened
+    },
+
+    _scrollLog() {
+      if (!this.logOpen) return;
+      this.$nextTick(() => {
+        const box = this.$refs.logBox;
+        if (box) box.scrollTop = box.scrollHeight;
+      });
+    },
+  };
+}
+</script>
+{% endblock %}

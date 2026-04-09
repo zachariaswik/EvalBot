@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
+import re
+import shutil
+import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from sse_starlette.sse import EventSourceResponse
 
 from src.db import (
     get_all_batch_outputs,
@@ -25,6 +31,36 @@ from src.db import (
 
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output" / "Batch"
+STARTUPS_DIR = BASE_DIR.parent / "Startups"
+PROJECT_ROOT = BASE_DIR.parent
+_ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')
+jobs: dict[str, dict] = {}          # job_id → {status, lines, batch_id, lock}
+_run_lock: asyncio.Lock | None = None
+
+
+def _get_run_lock() -> asyncio.Lock:
+    global _run_lock
+    if _run_lock is None:
+        _run_lock = asyncio.Lock()
+    return _run_lock
+
+
+def _python_binary() -> str:
+    for p in [PROJECT_ROOT / ".venv313" / "bin" / "python",
+              PROJECT_ROOT / ".venv" / "bin" / "python"]:
+        if p.exists():
+            return str(p)
+    import sys
+    return sys.executable
+
+
+def _latest_batch_id() -> str | None:
+    if not OUTPUT_DIR.exists():
+        return None
+    candidates = [d.name for d in OUTPUT_DIR.iterdir()
+                  if d.is_dir() and d.name.startswith("batch_")
+                  and d.name.split("_")[1].isdigit()]
+    return max(candidates, key=lambda n: int(n.split("_")[1])) if candidates else None
 
 app = FastAPI(title="EvalBot", docs_url=None, redoc_url=None)
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -265,3 +301,160 @@ async def startup_detail(request: Request, batch_id: str, startup_name: str):
 @app.get("/roadmap", response_class=HTMLResponse)
 async def roadmap(request: Request):
     return templates.TemplateResponse(request, "roadmap.html")
+
+
+# ---------------------------------------------------------------------------
+# Run Batch routes
+# ---------------------------------------------------------------------------
+
+@app.get("/run", response_class=HTMLResponse)
+async def run_page(request: Request):
+    """Staging page — list Startups/ dirs and show upload form."""
+    staged: list[dict] = []
+    if STARTUPS_DIR.exists():
+        for d in sorted(STARTUPS_DIR.iterdir()):
+            if d.is_dir():
+                files = [f.name for f in d.iterdir() if f.is_file()]
+                staged.append({"name": d.name, "files": files})
+    return templates.TemplateResponse(request, "run.html", {"staged": staged})
+
+
+@app.post("/api/upload")
+async def upload_startup(
+    startup_name: str = Form(...),
+    files: list[UploadFile] = File(...),
+):
+    """Save uploaded files to Startups/{name}/."""
+    ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
+    if not startup_name or not startup_name.strip():
+        raise HTTPException(status_code=422, detail="startup_name is required")
+
+    startup_name = startup_name.strip()
+    target_dir = STARTUPS_DIR / startup_name
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    saved = []
+    for upload in files:
+        suffix = Path(upload.filename or "").suffix.lower()
+        if suffix not in ALLOWED_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File type '{suffix}' not allowed. Use: {', '.join(ALLOWED_EXTENSIONS)}",
+            )
+        dest = target_dir / (upload.filename or "upload")
+        dest.write_bytes(await upload.read())
+        saved.append(upload.filename)
+
+    return JSONResponse({"startup_name": startup_name, "files": saved})
+
+
+@app.delete("/api/startup/{name}")
+async def delete_startup(name: str):
+    """Remove a staged startup dir."""
+    target = STARTUPS_DIR / name
+    if not target.exists() or not target.is_dir():
+        raise HTTPException(status_code=404, detail=f"Startup '{name}' not found")
+    shutil.rmtree(target)
+    return JSONResponse({"deleted": name})
+
+
+@app.post("/api/run")
+async def start_run(request: Request):
+    """Start subprocess batch run, return {job_id}."""
+    lock = _get_run_lock()
+    if lock.locked():
+        raise HTTPException(status_code=409, detail="A batch run is already in progress")
+
+    # Parse optional startup_names from request body
+    try:
+        body = await request.json()
+        startup_names: list[str] = body.get("startup_names") or []
+    except Exception:
+        startup_names = []
+
+    # Check that there's something to run
+    if not STARTUPS_DIR.exists() or not any(
+        d.is_dir() for d in STARTUPS_DIR.iterdir()
+    ):
+        raise HTTPException(status_code=400, detail="No startups staged in Startups/ directory")
+
+    if startup_names:
+        # Validate every requested name actually exists
+        missing = [n for n in startup_names if not (STARTUPS_DIR / n).is_dir()]
+        if missing:
+            raise HTTPException(status_code=400, detail=f"Unknown startup(s): {missing}")
+
+    job_id = str(uuid.uuid4())
+    jobs[job_id] = {"status": "running", "lines": [], "batch_id": None}
+
+    async def _run():
+        try:
+            async with lock:
+                python = _python_binary()
+                cmd = [python, "-u", "main.py", "batch", str(STARTUPS_DIR)]
+                if startup_names:
+                    cmd += ["--only"] + startup_names
+                jobs[job_id]["lines"].append(f"$ {' '.join(cmd)}")
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                    cwd=str(PROJECT_ROOT),
+                    env={**os.environ, "PYTHONUNBUFFERED": "1"},
+                )
+                assert proc.stdout is not None
+                async for raw_line in proc.stdout:
+                    line = _ANSI_RE.sub("", raw_line.decode("utf-8", errors="replace")).rstrip()
+                    if line:
+                        jobs[job_id]["lines"].append(line)
+                await proc.wait()
+
+                if proc.returncode == 0:
+                    batch_id = _latest_batch_id()
+                    jobs[job_id]["batch_id"] = batch_id
+                    jobs[job_id]["status"] = "done"
+                    jobs[job_id]["lines"].append(f"__DONE__:{batch_id or ''}")
+                else:
+                    jobs[job_id]["lines"].append(f"Process exited with code {proc.returncode}")
+                    jobs[job_id]["status"] = "error"
+                    jobs[job_id]["lines"].append("__ERROR__")
+        except Exception as exc:
+            jobs[job_id]["lines"].append(f"ERROR: {exc}")
+            jobs[job_id]["status"] = "error"
+            jobs[job_id]["lines"].append("__ERROR__")
+
+    asyncio.create_task(_run())
+    return JSONResponse({"job_id": job_id})
+
+
+@app.get("/api/run/{job_id}/status")
+async def run_status(job_id: str):
+    """Polling fallback — return {status, batch_id}."""
+    job = jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Unknown job_id")
+    return JSONResponse({"status": job["status"], "batch_id": job.get("batch_id")})
+
+
+@app.get("/api/run/{job_id}/stream")
+async def run_stream(request: Request, job_id: str):
+    """SSE log stream for a running job."""
+    job = jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Unknown job_id")
+
+    async def _generator():
+        yield {"data": "Stream connected — waiting for output..."}
+        sent = 0
+        while True:
+            if await request.is_disconnected():
+                break
+            lines = job["lines"]
+            while sent < len(lines):
+                yield {"data": lines[sent]}
+                sent += 1
+            if job["status"] in ("done", "error"):
+                break
+            await asyncio.sleep(0.3)
+
+    return EventSourceResponse(_generator())

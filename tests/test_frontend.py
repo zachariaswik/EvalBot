@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 from pathlib import Path
 
@@ -154,3 +155,102 @@ class TestRoadmapPage:
     def test_roadmap_contains_coming_soon(self, app_with_db):
         response = app_with_db.get("/roadmap")
         assert "Coming" in response.text
+
+
+# ---------------------------------------------------------------------------
+# Run page fixture & tests
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def app_client(tmp_path, monkeypatch):
+    """FastAPI TestClient with patched STARTUPS_DIR, OUTPUT_DIR, and _db_path."""
+    import frontend.app as app_module
+
+    startups_dir = tmp_path / "Startups"
+    startups_dir.mkdir()
+    output_dir = tmp_path / "output" / "Batch"
+    output_dir.mkdir(parents=True)
+    db_path = tmp_path / "test.db"
+
+    monkeypatch.setattr(app_module, "STARTUPS_DIR", startups_dir)
+    monkeypatch.setattr(app_module, "OUTPUT_DIR", output_dir)
+    monkeypatch.setattr(app_module, "_db_path", lambda: None)
+
+    from frontend.app import app
+    return TestClient(app)
+
+
+class TestRunPage:
+    def test_run_page_loads(self, app_client):
+        response = app_client.get("/run")
+        assert response.status_code == 200
+
+    def test_run_page_shows_empty_state(self, app_client):
+        response = app_client.get("/run")
+        assert response.status_code == 200
+        assert "No startups staged" in response.text
+
+    def test_upload_endpoint_saves_file(self, app_client, tmp_path, monkeypatch):
+        import frontend.app as app_module
+        startups_dir = tmp_path / "Startups2"
+        startups_dir.mkdir()
+        monkeypatch.setattr(app_module, "STARTUPS_DIR", startups_dir)
+
+        response = app_client.post(
+            "/api/upload",
+            data={"startup_name": "AcmeCorp"},
+            files={"files": ("pitch.txt", io.BytesIO(b"hello"), "text/plain")},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["startup_name"] == "AcmeCorp"
+        assert "pitch.txt" in data["files"]
+        assert (startups_dir / "AcmeCorp" / "pitch.txt").exists()
+
+    def test_upload_requires_name(self, app_client):
+        response = app_client.post(
+            "/api/upload",
+            data={"startup_name": ""},
+            files={"files": ("pitch.txt", io.BytesIO(b"hello"), "text/plain")},
+        )
+        assert response.status_code == 422
+
+    def test_upload_rejects_bad_extension(self, app_client, tmp_path, monkeypatch):
+        import frontend.app as app_module
+        startups_dir = tmp_path / "Startups3"
+        startups_dir.mkdir()
+        monkeypatch.setattr(app_module, "STARTUPS_DIR", startups_dir)
+
+        response = app_client.post(
+            "/api/upload",
+            data={"startup_name": "EvilCorp"},
+            files={"files": ("malware.exe", io.BytesIO(b"\x00"), "application/octet-stream")},
+        )
+        assert response.status_code == 400
+
+    def test_run_status_unknown_job(self, app_client):
+        response = app_client.get("/api/run/nonexistent-job-id/status")
+        assert response.status_code == 404
+
+    def test_delete_startup(self, app_client, tmp_path, monkeypatch):
+        import frontend.app as app_module
+        startups_dir = tmp_path / "Startups4"
+        (startups_dir / "OldCorp").mkdir(parents=True)
+        monkeypatch.setattr(app_module, "STARTUPS_DIR", startups_dir)
+
+        response = app_client.delete("/api/startup/OldCorp")
+        assert response.status_code == 200
+        assert not (startups_dir / "OldCorp").exists()
+
+    def test_delete_nonexistent_startup(self, app_client):
+        response = app_client.delete("/api/startup/DoesNotExist")
+        assert response.status_code == 404
+
+    def test_run_start_rejected_when_no_startups(self, app_client, tmp_path, monkeypatch):
+        import frontend.app as app_module
+        empty_dir = tmp_path / "EmptyStartups"
+        empty_dir.mkdir()
+        monkeypatch.setattr(app_module, "STARTUPS_DIR", empty_dir)
+
+        response = app_client.post("/api/run")
+        assert response.status_code == 400

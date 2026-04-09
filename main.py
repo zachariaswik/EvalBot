@@ -14,8 +14,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, get_args, get_origin
 
+import logging
+
 import pdfplumber
 from dotenv import load_dotenv
+
+logging.getLogger("pdfminer").setLevel(logging.ERROR)
 
 load_dotenv()
 
@@ -1451,6 +1455,13 @@ def main() -> None:
 
     args = sys.argv[1:]
 
+    # Extract optional --only filter (list of startup names to include)
+    only_names: set[str] | None = None
+    if "--only" in args:
+        only_idx = args.index("--only")
+        only_names = set(args[only_idx + 1:])
+        args = args[:only_idx]
+
     if not args:
         # Default: process CourseDocs
         print("No arguments — processing CourseDocs as a single submission.\n")
@@ -1519,10 +1530,9 @@ def main() -> None:
                 doc = Document(f)
                 return "\n".join([p.text for p in doc.paragraphs])
             elif ext == '.pdf':
-                from PyPDF2 import PdfReader
                 try:
-                    reader = PdfReader(f)
-                    return "\n".join([page.extract_text() or "" for page in reader.pages])
+                    with pdfplumber.open(f) as pdf:
+                        return "\n".join([page.extract_text() or "" for page in pdf.pages])
                 except Exception:
                     return ""
             else:
@@ -1547,11 +1557,16 @@ def main() -> None:
                 name = _extract_startup_name(text)
                 submissions[name] = text
 
+        if only_names:
+            submissions = {k: v for k, v in submissions.items() if k in only_names}
+
         if not submissions:
             print(f"No startup submissions found in {folder}")
             sys.exit(1)
 
         print(f"Found {len(submissions)} submissions: {list(submissions.keys())}\n")
+        import json as _json
+        print(f"PROGRESS:BATCH_START:{_json.dumps({'total': len(submissions), 'names': list(submissions.keys())})}", flush=True)
         batch_id = _next_batch_id()
         result = run_batch(submissions, batch_id=batch_id)
 
