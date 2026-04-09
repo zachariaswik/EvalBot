@@ -11,6 +11,14 @@ from pathlib import Path
 
 import pytest
 
+try:
+    import reflex  # noqa: F401
+    HAS_REFLEX = True
+except ImportError:
+    HAS_REFLEX = False
+
+pytestmark = pytest.mark.skipif(not HAS_REFLEX, reason="reflex not installed")
+
 
 # ---------------------------------------------------------------------------
 # Helper: seed a test DB
