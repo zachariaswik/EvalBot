@@ -1,3 +1,7 @@
+*.py[cod]
+.web
+.states
+assets/external/
 # Environment variables (secrets — never commit)
 .env
 

@@ -1,1 +1,1 @@
-
+"""EvalBot Reflex frontend package."""

@@ -1,22 +1,22 @@
-"""Tests for frontend/app.py — FastAPI web interface."""
+"""Tests for the Reflex frontend state helper functions.
+
+These tests verify the Python data-loading logic in the state modules
+without requiring the Reflex runtime or a running server.
+"""
 
 from __future__ import annotations
 
-import io
 import json
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
 
 # ---------------------------------------------------------------------------
-# Fixtures
+# Helper: seed a test DB
 # ---------------------------------------------------------------------------
 
-@pytest.fixture
-def app_with_db(tmp_path, monkeypatch):
-    """FastAPI TestClient backed by a seeded temp database."""
+def _seed_db(db_path: Path) -> None:
     from src.db import (
         create_batch,
         init_db,
@@ -25,16 +25,12 @@ def app_with_db(tmp_path, monkeypatch):
         upsert_startup,
     )
 
-    db_path = tmp_path / "test.db"
     init_db(db_path)
-
-    # Seed batch and startups
     create_batch("batch_1", "Test batch", db_path)
     upsert_startup("batch_1", "TestCo", "some text", db_path)
     upsert_startup("batch_1", "AnotherCo", "some text", db_path)
     update_startup_status("batch_1", "TestCo", "completed", db_path)
 
-    # Seed agent 2 output for TestCo
     a2_output = {
         "verdict": "Top VC Candidate",
         "total_score": 78,
@@ -59,198 +55,256 @@ def app_with_db(tmp_path, monkeypatch):
     }
     store_agent_output("batch_1", "TestCo", 2, json.dumps(a2_output), 1, db_path=db_path)
 
-    # Seed agent 1 output for TestCo
     a1_output = {
         "startup_name": "TestCo",
         "one_line_description": "AI for everything",
         "problem": "Big problem",
-        "solution": "AI solution",
-        "target_customer": "Enterprises",
-        "buyer": "CTO",
-        "market": "B2B SaaS",
-        "business_model": "Subscription",
-        "competitors": "None known",
-        "traction": "10 pilots",
-        "team": "3 founders",
-        "why_now": "AI wave",
-        "vision": "Global scale",
-        "unfair_advantage": "Domain expertise",
-        "risks": "Market adoption",
-        "missing_info": [],
-        "inconsistencies": [],
-        "clarity_score": 8,
     }
     store_agent_output("batch_1", "TestCo", 1, json.dumps(a1_output), 1, db_path=db_path)
 
-    # Patch the app to use our temp db
-    import frontend.app as app_module
-    monkeypatch.setattr(app_module, "_db_path", lambda: db_path)
 
-    from frontend.app import app
-    return TestClient(app)
+# ---------------------------------------------------------------------------
+# _get_verdict_color
+# ---------------------------------------------------------------------------
+
+def test_verdict_color_vc():
+    from frontend.state.dashboard import _get_verdict_color
+    assert _get_verdict_color("Top VC Candidate") == "emerald"
+
+
+def test_verdict_color_reject():
+    from frontend.state.dashboard import _get_verdict_color
+    assert _get_verdict_color("Reject") == "red"
+
+
+def test_verdict_color_unknown():
+    from frontend.state.dashboard import _get_verdict_color
+    assert _get_verdict_color("Something Else") == "gray"
+
+
+def test_verdict_color_promising():
+    from frontend.state.dashboard import _get_verdict_color
+    assert _get_verdict_color("Promising, Needs Sharper Focus") == "blue"
 
 
 # ---------------------------------------------------------------------------
-# Dashboard tests
+# _load_batches_from_fs
 # ---------------------------------------------------------------------------
 
-class TestDashboard:
-    def test_dashboard_loads(self, app_with_db):
-        response = app_with_db.get("/")
-        assert response.status_code == 200
-        assert "EvalBot" in response.text
-
-    def test_dashboard_shows_batch_list(self, app_with_db):
-        response = app_with_db.get("/")
-        assert response.status_code == 200
-        assert "batch_1" in response.text
+def test_load_batches_from_fs_empty(tmp_path, monkeypatch):
+    from frontend.state import dashboard as dash_mod
+    monkeypatch.setattr(dash_mod, "OUTPUT_DIR", tmp_path / "nonexistent")
+    result = dash_mod._load_batches_from_fs()
+    assert result == []
 
 
-# ---------------------------------------------------------------------------
-# Batch page tests
-# ---------------------------------------------------------------------------
+def test_load_batches_from_fs_with_data(tmp_path, monkeypatch):
+    output_dir = tmp_path / "output" / "Batch"
+    (output_dir / "batch_1" / "TestCo").mkdir(parents=True)
+    (output_dir / "batch_2" / "AnotherCo").mkdir(parents=True)
+    from frontend.state import dashboard as dash_mod
+    monkeypatch.setattr(dash_mod, "OUTPUT_DIR", output_dir)
 
-class TestBatchPage:
-    def test_batch_page_loads(self, app_with_db):
-        response = app_with_db.get("/batch/batch_1")
-        assert response.status_code == 200
-
-    def test_batch_page_shows_startups(self, app_with_db):
-        response = app_with_db.get("/batch/batch_1")
-        assert "TestCo" in response.text
-
-    def test_404_on_missing_batch(self, app_with_db):
-        response = app_with_db.get("/batch/nonexistent_batch_999")
-        assert response.status_code == 404
+    result = dash_mod._load_batches_from_fs()
+    assert len(result) == 2
+    batch_ids = [b["batch_id"] for b in result]
+    assert "batch_1" in batch_ids
+    assert "batch_2" in batch_ids
 
 
-# ---------------------------------------------------------------------------
-# Startup detail tests
-# ---------------------------------------------------------------------------
+def test_load_batch_from_fs(tmp_path, monkeypatch):
+    output_dir = tmp_path / "output" / "Batch"
+    (output_dir / "batch_1" / "TestCo").mkdir(parents=True)
+    (output_dir / "batch_1" / "AnotherCo").mkdir(parents=True)
+    from frontend.state import dashboard as dash_mod
+    monkeypatch.setattr(dash_mod, "OUTPUT_DIR", output_dir)
 
-class TestStartupPage:
-    def test_startup_page_loads(self, app_with_db):
-        response = app_with_db.get("/batch/batch_1/TestCo")
-        assert response.status_code == 200
-
-    def test_startup_page_shows_name(self, app_with_db):
-        response = app_with_db.get("/batch/batch_1/TestCo")
-        assert "TestCo" in response.text
-
-    def test_startup_page_shows_scores(self, app_with_db):
-        response = app_with_db.get("/batch/batch_1/TestCo")
-        # Radar chart data or score values should be in the page
-        assert "78" in response.text  # total_score
+    result = dash_mod._load_batch_from_fs("batch_1")
+    names = [s["startup_name"] for s in result]
+    assert "TestCo" in names
+    assert "AnotherCo" in names
 
 
-# ---------------------------------------------------------------------------
-# Roadmap tests
-# ---------------------------------------------------------------------------
-
-class TestRoadmapPage:
-    def test_roadmap_loads(self, app_with_db):
-        response = app_with_db.get("/roadmap")
-        assert response.status_code == 200
-
-    def test_roadmap_contains_coming_soon(self, app_with_db):
-        response = app_with_db.get("/roadmap")
-        assert "Coming" in response.text
-
-
-# ---------------------------------------------------------------------------
-# Run page fixture & tests
-# ---------------------------------------------------------------------------
-
-@pytest.fixture
-def app_client(tmp_path, monkeypatch):
-    """FastAPI TestClient with patched STARTUPS_DIR, OUTPUT_DIR, and _db_path."""
-    import frontend.app as app_module
-
-    startups_dir = tmp_path / "Startups"
-    startups_dir.mkdir()
+def test_load_batch_from_fs_missing(tmp_path, monkeypatch):
     output_dir = tmp_path / "output" / "Batch"
     output_dir.mkdir(parents=True)
+    from frontend.state import dashboard as dash_mod
+    monkeypatch.setattr(dash_mod, "OUTPUT_DIR", output_dir)
+    result = dash_mod._load_batch_from_fs("nonexistent_batch")
+    assert result == []
+
+
+# ---------------------------------------------------------------------------
+# _load_startup_outputs_from_fs
+# ---------------------------------------------------------------------------
+
+def test_load_startup_outputs_from_fs(tmp_path, monkeypatch):
+    output_dir = tmp_path / "output" / "Batch"
+    startup_dir = output_dir / "batch_1" / "TestCo"
+    startup_dir.mkdir(parents=True)
+
+    data = {
+        "agent1": {"startup_name": "TestCo"},
+        "agent2": {"verdict": "Top VC Candidate", "total_score": 75},
+    }
+    (startup_dir / "TestCo.json").write_text(json.dumps(data))
+
+    from frontend.state import dashboard as dash_mod
+    monkeypatch.setattr(dash_mod, "OUTPUT_DIR", output_dir)
+
+    result = dash_mod._load_startup_outputs_from_fs("batch_1", "TestCo")
+    assert 1 in result
+    assert 2 in result
+    assert result[2]["total_score"] == 75
+
+
+def test_load_startup_outputs_missing(tmp_path, monkeypatch):
+    output_dir = tmp_path / "output" / "Batch"
+    output_dir.mkdir(parents=True)
+    from frontend.state import dashboard as dash_mod
+    monkeypatch.setattr(dash_mod, "OUTPUT_DIR", output_dir)
+    result = dash_mod._load_startup_outputs_from_fs("batch_1", "NoSuchCo")
+    assert result == {}
+
+
+# ---------------------------------------------------------------------------
+# _get_startup_outputs (DB path)
+# ---------------------------------------------------------------------------
+
+def test_get_startup_outputs_from_db(tmp_path, monkeypatch):
     db_path = tmp_path / "test.db"
+    _seed_db(db_path)
 
-    monkeypatch.setattr(app_module, "STARTUPS_DIR", startups_dir)
-    monkeypatch.setattr(app_module, "OUTPUT_DIR", output_dir)
-    monkeypatch.setattr(app_module, "_db_path", lambda: None)
+    from frontend.state import dashboard as dash_mod
+    monkeypatch.setattr(dash_mod, "_db_path", lambda: db_path)
+    monkeypatch.setattr(dash_mod, "OUTPUT_DIR", tmp_path / "nonexistent")
 
-    from frontend.app import app
-    return TestClient(app)
+    outputs = dash_mod._get_startup_outputs("batch_1", "TestCo")
+    assert 2 in outputs
+    assert outputs[2]["verdict"] == "Top VC Candidate"
+    assert outputs[2]["total_score"] == 78
 
 
-class TestRunPage:
-    def test_run_page_loads(self, app_client):
-        response = app_client.get("/run")
-        assert response.status_code == 200
+def test_get_startup_outputs_fallback_to_fs(tmp_path, monkeypatch):
+    output_dir = tmp_path / "output" / "Batch"
+    startup_dir = output_dir / "batch_1" / "TestCo"
+    startup_dir.mkdir(parents=True)
 
-    def test_run_page_shows_empty_state(self, app_client):
-        response = app_client.get("/run")
-        assert response.status_code == 200
-        assert "No startups staged" in response.text
+    data = {"agent2": {"verdict": "Reject", "total_score": 30}}
+    (startup_dir / "TestCo.json").write_text(json.dumps(data))
 
-    def test_upload_endpoint_saves_file(self, app_client, tmp_path, monkeypatch):
-        import frontend.app as app_module
-        startups_dir = tmp_path / "Startups2"
-        startups_dir.mkdir()
-        monkeypatch.setattr(app_module, "STARTUPS_DIR", startups_dir)
+    from frontend.state import dashboard as dash_mod
+    monkeypatch.setattr(dash_mod, "_db_path", lambda: None)
+    monkeypatch.setattr(dash_mod, "OUTPUT_DIR", output_dir)
 
-        response = app_client.post(
-            "/api/upload",
-            data={"startup_name": "AcmeCorp"},
-            files={"files": ("pitch.txt", io.BytesIO(b"hello"), "text/plain")},
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["startup_name"] == "AcmeCorp"
-        assert "pitch.txt" in data["files"]
-        assert (startups_dir / "AcmeCorp" / "pitch.txt").exists()
+    outputs = dash_mod._get_startup_outputs("batch_1", "TestCo")
+    assert 2 in outputs
+    assert outputs[2]["verdict"] == "Reject"
 
-    def test_upload_requires_name(self, app_client):
-        response = app_client.post(
-            "/api/upload",
-            data={"startup_name": ""},
-            files={"files": ("pitch.txt", io.BytesIO(b"hello"), "text/plain")},
-        )
-        assert response.status_code == 422
 
-    def test_upload_rejects_bad_extension(self, app_client, tmp_path, monkeypatch):
-        import frontend.app as app_module
-        startups_dir = tmp_path / "Startups3"
-        startups_dir.mkdir()
-        monkeypatch.setattr(app_module, "STARTUPS_DIR", startups_dir)
+# ---------------------------------------------------------------------------
+# Batch state helpers
+# ---------------------------------------------------------------------------
 
-        response = app_client.post(
-            "/api/upload",
-            data={"startup_name": "EvilCorp"},
-            files={"files": ("malware.exe", io.BytesIO(b"\x00"), "application/octet-stream")},
-        )
-        assert response.status_code == 400
+def test_batch_verdict_color():
+    from frontend.state.batch import _get_verdict_color
+    assert _get_verdict_color("Reject") == "red"
+    assert _get_verdict_color("Top VC Candidate") == "emerald"
 
-    def test_run_status_unknown_job(self, app_client):
-        response = app_client.get("/api/run/nonexistent-job-id/status")
-        assert response.status_code == 404
 
-    def test_delete_startup(self, app_client, tmp_path, monkeypatch):
-        import frontend.app as app_module
-        startups_dir = tmp_path / "Startups4"
-        (startups_dir / "OldCorp").mkdir(parents=True)
-        monkeypatch.setattr(app_module, "STARTUPS_DIR", startups_dir)
+def test_batch_load_batch_from_fs(tmp_path, monkeypatch):
+    output_dir = tmp_path / "output" / "Batch"
+    (output_dir / "batch_1" / "StartupA").mkdir(parents=True)
+    (output_dir / "batch_1" / "StartupB").mkdir(parents=True)
 
-        response = app_client.delete("/api/startup/OldCorp")
-        assert response.status_code == 200
-        assert not (startups_dir / "OldCorp").exists()
+    from frontend.state import batch as batch_mod
+    monkeypatch.setattr(batch_mod, "OUTPUT_DIR", output_dir)
 
-    def test_delete_nonexistent_startup(self, app_client):
-        response = app_client.delete("/api/startup/DoesNotExist")
-        assert response.status_code == 404
+    result = batch_mod._load_batch_from_fs("batch_1")
+    assert len(result) == 2
+    names = [s["startup_name"] for s in result]
+    assert "StartupA" in names and "StartupB" in names
 
-    def test_run_start_rejected_when_no_startups(self, app_client, tmp_path, monkeypatch):
-        import frontend.app as app_module
-        empty_dir = tmp_path / "EmptyStartups"
-        empty_dir.mkdir()
-        monkeypatch.setattr(app_module, "STARTUPS_DIR", empty_dir)
 
-        response = app_client.post("/api/run")
-        assert response.status_code == 400
+# ---------------------------------------------------------------------------
+# Startup state helpers
+# ---------------------------------------------------------------------------
+
+def test_startup_verdict_color():
+    from frontend.state.startup import _get_verdict_color
+    assert _get_verdict_color("AI Wrapper With Weak Moat") == "amber"
+    assert _get_verdict_color("Good Small Business, Not Venture-Scale") == "orange"
+
+
+def test_startup_load_from_fs(tmp_path, monkeypatch):
+    output_dir = tmp_path / "output" / "Batch"
+    startup_dir = output_dir / "batch_1" / "TestCo"
+    startup_dir.mkdir(parents=True)
+
+    data = {
+        "agent1": {"startup_name": "TestCo", "one_line_description": "AI biz"},
+        "agent2": {"verdict": "Promising, Needs Sharper Focus", "total_score": 60},
+    }
+    (startup_dir / "TestCo.json").write_text(json.dumps(data))
+
+    from frontend.state import startup as startup_mod
+    monkeypatch.setattr(startup_mod, "OUTPUT_DIR", output_dir)
+
+    outputs = startup_mod._load_startup_outputs_from_fs("batch_1", "TestCo")
+    assert 1 in outputs
+    assert 2 in outputs
+    assert outputs[2]["total_score"] == 60
+
+
+# ---------------------------------------------------------------------------
+# Run state helpers
+# ---------------------------------------------------------------------------
+
+def test_python_binary_returns_string():
+    from frontend.state.run import _python_binary
+    binary = _python_binary()
+    assert isinstance(binary, str)
+    assert len(binary) > 0
+
+
+def test_latest_batch_id_no_output(tmp_path, monkeypatch):
+    from frontend.state import run as run_mod
+    monkeypatch.setattr(run_mod, "OUTPUT_DIR", tmp_path / "nonexistent")
+    result = run_mod._latest_batch_id()
+    assert result is None
+
+
+def test_latest_batch_id_with_batches(tmp_path, monkeypatch):
+    output_dir = tmp_path / "output" / "Batch"
+    (output_dir / "batch_1").mkdir(parents=True)
+    (output_dir / "batch_3").mkdir(parents=True)
+    (output_dir / "batch_2").mkdir(parents=True)
+
+    from frontend.state import run as run_mod
+    monkeypatch.setattr(run_mod, "OUTPUT_DIR", output_dir)
+    result = run_mod._latest_batch_id()
+    assert result == "batch_3"
+
+
+def test_run_state_file_round_trip(tmp_path, monkeypatch):
+    state_file = tmp_path / "evalbot_run.json"
+    from frontend.state import run as run_mod
+    monkeypatch.setattr(run_mod, "RUN_STATE_FILE", state_file)
+
+    run_mod._write_run_state("job-123", "running", None)
+    state = run_mod._read_run_state()
+    assert state is not None
+    assert state["job_id"] == "job-123"
+    assert state["status"] == "running"
+
+    run_mod._write_run_state("job-123", "done", "batch_5")
+    state = run_mod._read_run_state()
+    assert state["status"] == "done"
+    assert state["batch_id"] == "batch_5"
+
+
+def test_read_run_state_missing(tmp_path, monkeypatch):
+    from frontend.state import run as run_mod
+    monkeypatch.setattr(run_mod, "RUN_STATE_FILE", tmp_path / "nonexistent.json")
+    result = run_mod._read_run_state()
+    assert result is None
