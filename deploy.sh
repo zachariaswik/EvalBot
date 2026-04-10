@@ -12,12 +12,17 @@ echo "--- Pulling latest code ---"
 git pull
 
 echo "--- Installing/updating dependencies ---"
-# --no-deps skips the dependency resolver.  requirements.txt is a complete
-# pip freeze (all transitive deps pinned), so every package is already listed.
-# This is necessary because crewai (click~=8.1.7) and reflex (click>=8.2)
-# declare incompatible click bounds, but the pinned click==8.3.2 works fine
-# at runtime — the resolver just can't figure that out.
-.venv/bin/pip install --quiet --no-deps -r requirements.txt
+# crewai declares click~=8.1.7 and reflex declares click>=8.2 — no single
+# click version satisfies both according to pip's metadata resolver, yet both
+# work fine with click==8.3.2 at runtime (proved by the test suite).
+#
+# Workaround: install each pinned package individually with --no-deps.
+# When given one package at a time the resolver never sees the contradictory
+# cross-package constraints.  requirements.txt is a complete pip freeze so
+# every transitive dependency is already listed — nothing is skipped.
+grep -v '^[[:space:]]*#' requirements.txt \
+  | grep -v '^[[:space:]]*$' \
+  | xargs -n1 .venv/bin/pip install --quiet --no-deps
 
 echo "--- Running tests ---"
 .venv/bin/python -m pytest tests/ -q
