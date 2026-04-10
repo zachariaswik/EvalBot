@@ -8,7 +8,11 @@ Production:
     reflex run --env prod --loglevel warning
 """
 
+from pathlib import Path
+
 import reflex as rx
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from frontend.pages.dashboard import dashboard_page
 from frontend.pages.batch import batch_page
@@ -19,6 +23,34 @@ from frontend.state.dashboard import DashboardState
 from frontend.state.batch import BatchState
 from frontend.state.startup import StartupState
 from frontend.state.run import RunState
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_STARTUPS_DIR = PROJECT_ROOT / "Startups"
+_ALLOWED_EXTS = {".pdf", ".docx", ".txt", ".md"}
+
+
+def _save_folder_files(
+    startup_name: str,
+    files: list[tuple[str, bytes]],  # (filename, content)
+    startups_dir: Path = _STARTUPS_DIR,
+) -> tuple[list[str], str | None]:
+    """Save validated files to Startups/{startup_name}/.
+    Returns (saved_filenames, error_message_or_None).
+    """
+    name = startup_name.strip().replace("..", "").strip("/").strip("\\")
+    if not name:
+        return [], "No startup name provided."
+    target = startups_dir / name
+    target.mkdir(parents=True, exist_ok=True)
+    saved: list[str] = []
+    for filename, content in files:
+        if Path(filename).suffix.lower() in _ALLOWED_EXTS:
+            (target / Path(filename).name).write_bytes(content)
+            saved.append(filename)
+    if not saved:
+        return [], "No supported files (.pdf .docx .txt .md) found in folder."
+    return saved, None
+
 
 app = rx.App(
     theme=rx.theme(
@@ -34,6 +66,22 @@ app = rx.App(
         "background": "#f4f6fb",
     },
 )
+
+
+async def _upload_startup_handler(request: Request) -> JSONResponse:
+    form = await request.form()
+    startup_name = str(form.get("startup_name", ""))
+    files: list[tuple[str, bytes]] = []
+    for key, value in form.multi_items():
+        if key == "file" and hasattr(value, "filename"):
+            files.append((value.filename or "", await value.read()))
+    saved, err = _save_folder_files(startup_name, files)
+    if err:
+        return JSONResponse({"ok": False, "error": err})
+    return JSONResponse({"ok": True, "startup": startup_name.strip(), "files": saved})
+
+
+app._api.add_route("/upload-startup", _upload_startup_handler, methods=["POST"])
 
 app.add_page(
     dashboard_page,

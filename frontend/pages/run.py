@@ -569,92 +569,47 @@ def run_page() -> rx.Component:
                     align="center",
                     style={"marginBottom": "14px"},
                 ),
-                rx.hstack(
-                    rx.vstack(
-                        rx.text("Name", style={"fontSize": "10px", "fontWeight": "700", "color": TEXT_3, "marginBottom": "5px", "letterSpacing": "0.06em", "textTransform": "uppercase"}),
-                        rx.el.input(
-                            value=RunState.new_startup_name,
-                            on_change=RunState.set_new_startup_name,
-                            placeholder="e.g. AcmeCorp",
-                            disabled=RunState.status == "running",
-                            style={
-                                "width": "100%",
-                                "background": SURFACE,
-                                "border": f"1.5px solid {BORDER}",
-                                "color": TEXT,
-                                "borderRadius": "7px",
-                                "padding": "8px 12px",
-                                "fontFamily": "'Plus Jakarta Sans', sans-serif",
-                                "fontSize": "13px",
-                                "outline": "none",
-                                "_focus": {"borderColor": BLUE, "boxShadow": "0 0 0 3px rgba(27,72,196,0.12)"},
-                                "_disabled": {"opacity": "0.5"},
-                            },
-                        ),
-                        spacing="1",
-                        align="start",
-                        flex="1",
-                    ),
-                    rx.vstack(
-                        rx.text("Files (.pdf .docx .txt .md)", style={"fontSize": "10px", "fontWeight": "700", "color": TEXT_3, "marginBottom": "5px", "letterSpacing": "0.06em", "textTransform": "uppercase"}),
-                        rx.upload(
-                            rx.el.button(
-                                "Choose files",
-                                style={
-                                    "padding": "8px 14px",
-                                    "background": SURFACE_2,
-                                    "border": f"1.5px solid {BORDER}",
-                                    "borderRadius": "7px",
-                                    "fontSize": "13px",
-                                    "color": TEXT_2,
-                                    "cursor": "pointer",
-                                    "fontFamily": "'Plus Jakarta Sans', sans-serif",
-                                    "fontWeight": "500",
-                                    "_hover": {"borderColor": BLUE},
-                                },
-                            ),
-                            id="startup_upload",
-                            multiple=True,
-                            accept={
-                                "application/pdf": [".pdf"],
-                                "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
-                                "text/plain": [".txt"],
-                                "text/markdown": [".md"],
-                            },
-                            style={"width": "100%"},
-                        ),
-                        spacing="1",
-                        align="start",
-                        flex="1",
-                    ),
-                    rx.el.button(
-                        "+ Add",
-                        on_click=RunState.upload_files(rx.upload_files(upload_id="startup_upload")),
-                        disabled=(RunState.status == "running") | (RunState.new_startup_name.strip() == ""),
-                        style={
-                            "padding": "8px 18px",
-                            "background": BLUE,
-                            "color": "white",
-                            "border": "none",
-                            "borderRadius": "7px",
-                            "fontSize": "13px",
-                            "fontWeight": "700",
-                            "cursor": "pointer",
-                            "alignSelf": "flex-end",
-                            "fontFamily": "'Plus Jakarta Sans', sans-serif",
-                            "transition": "background 0.15s",
-                            "_hover": {"background": BLUE_2},
-                            "_disabled": {"opacity": "0.4", "cursor": "not-allowed"},
-                        },
-                    ),
-                    spacing="3",
-                    align="end",
-                    style={"marginBottom": "8px"},
+                # Hidden native file input — JS wires webkitdirectory + onchange after mount
+                rx.el.input(
+                    type="file",
+                    id="evalbot-folder-input",
+                    style={"display": "none"},
                 ),
-                rx.cond(
-                    RunState.upload_error != "",
-                    rx.text(RunState.upload_error, style={"fontSize": "11px", "color": RED, "fontWeight": "500"}),
-                    rx.box(style={"minHeight": "16px"}),
+                # Folder picker button
+                rx.el.button(
+                    rx.hstack(
+                        rx.html(
+                            '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" '
+                            'stroke="currentColor" stroke-width="2">'
+                            '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>'
+                            "</svg>"
+                        ),
+                        rx.text("Choose Startup Folder"),
+                        spacing="2",
+                        align="center",
+                    ),
+                    on_click=rx.call_script(
+                        "document.getElementById('evalbot-folder-input').click()"
+                    ),
+                    disabled=RunState.status == "running",
+                    style={
+                        "padding": "8px 18px",
+                        "background": SURFACE_2,
+                        "border": f"1.5px solid {BORDER}",
+                        "borderRadius": "7px",
+                        "fontSize": "13px",
+                        "color": TEXT_2,
+                        "cursor": "pointer",
+                        "fontFamily": "'Plus Jakarta Sans', sans-serif",
+                        "fontWeight": "500",
+                        "transition": "border-color 0.15s",
+                        "_hover": {"borderColor": BLUE},
+                        "_disabled": {"opacity": "0.5", "cursor": "not-allowed"},
+                    },
+                ),
+                rx.text(
+                    "The folder name becomes the startup name. Files inside: .pdf .docx .txt .md",
+                    style={"fontSize": "11px", "color": TEXT_3, "marginTop": "6px"},
                 ),
                 style={"padding": "20px 24px", "borderBottom": f"1px solid {BORDER}"},
             ),

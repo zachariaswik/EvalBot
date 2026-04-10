@@ -18,6 +18,94 @@ OUTPUT_DIR = PROJECT_ROOT / "output" / "Batch"
 RUN_STATE_FILE = PROJECT_ROOT / "evalbot_run.json"
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
+def _get_backend_base() -> str:
+    """Return the Starlette backend base URL by reading Reflex's generated env.json.
+
+    In development mode Reflex runs the Vite frontend (e.g. :3000) and the
+    Starlette backend (e.g. :8001) on separate ports.  env.json is generated
+    at startup with the real backend port, so it is the authoritative source.
+    Falls back to "" when env.json is absent (production mode where a single
+    server handles both frontend and backend — relative URLs work there).
+    """
+    env_file = PROJECT_ROOT / ".web" / "env.json"
+    try:
+        data = json.loads(env_file.read_text(encoding="utf-8"))
+        upload_url = data.get("UPLOAD", "")
+        if upload_url and "/_upload" in upload_url:
+            return upload_url.split("/_upload")[0]  # e.g. "http://localhost:8001"
+    except Exception:
+        pass
+    return ""
+
+
+def _folder_picker_js(backend_base: str) -> str:
+    """Build the JS that wires the hidden folder-input to POST to the upload endpoint.
+
+    backend_base is embedded directly so the correct port is used in dev mode
+    (Vite frontend ≠ Starlette backend port).  The JS also mirrors Reflex's own
+    getBackendURL() logic: if the backend hostname is a loopback alias it is
+    replaced with window.location.hostname so the URL works when the dev server
+    is accessed from another machine or behind a proxy.
+    """
+    return f"""
+(function () {{
+    var inp = document.getElementById('evalbot-folder-input');
+    if (!inp) return;
+    inp.setAttribute('webkitdirectory', '');
+    inp.setAttribute('multiple', '');
+    inp.onchange = function () {{
+        var files = Array.from(inp.files);
+        if (!files.length) return;
+        var folderName = files[0].webkitRelativePath.split('/')[0];
+        var allowed = ['.pdf', '.docx', '.txt', '.md'];
+        var valid = files.filter(function(f) {{
+            return allowed.some(function(ext) {{ return f.name.toLowerCase().endsWith(ext); }});
+        }});
+        if (!valid.length) {{
+            alert('No supported files (.pdf, .docx, .txt, .md) found in folder.');
+            inp.value = '';
+            return;
+        }}
+        var fd = new FormData();
+        fd.append('startup_name', folderName);
+        valid.forEach(function(f) {{ fd.append('file', f, f.name); }});
+
+        // Resolve the upload URL.  backendBase is injected by Python; when it
+        // contains a loopback hostname (localhost / 0.0.0.0) we substitute the
+        // browser's own hostname so the URL is reachable from any client —
+        // identical to what Reflex's getBackendURL() does.
+        var backendBase = '{backend_base}';
+        var uploadUrl = '/upload-startup';
+        if (backendBase) {{
+            try {{
+                var u = new URL(backendBase);
+                var loopbacks = ['localhost', '0.0.0.0', '::', '0:0:0:0:0:0:0:0'];
+                if (loopbacks.indexOf(u.hostname) !== -1) {{
+                    u.hostname = window.location.hostname;
+                    if (window.location.protocol === 'https:') {{
+                        u.protocol = 'https:';
+                        u.port = '';
+                    }}
+                }}
+                uploadUrl = u.origin + '/upload-startup';
+            }} catch(e) {{}}
+        }}
+
+        fetch(uploadUrl, {{method: 'POST', body: fd}})
+            .then(function(r) {{ return r.json(); }})
+            .then(function(d) {{
+                if (d.ok) {{ window.location.reload(); }}
+                else {{ alert(d.error || 'Upload failed'); inp.value = ''; }}
+            }})
+            .catch(function(err) {{
+                console.error('EvalBot upload error:', err);
+                alert('Upload failed \u2014 server error');
+                inp.value = '';
+            }});
+    }};
+}})();
+"""
+
 
 def _python_binary() -> str:
     for p in [
@@ -62,22 +150,16 @@ def _write_run_state(job_id: str, status: str, batch_id: str | None = None) -> N
 
 class RunState(rx.State):
     staged: list[dict] = []
-    new_startup_name: str = ""
     status: str = "idle"  # idle | running | done | error | interrupted
     completed_batch_id: str = ""  # batch_id set after a run completes
     log_lines: list[str] = []
     show_log: bool = False
     run_error: str = ""
     filter_single: bool = False
-    upload_error: str = ""
 
     @rx.var
     def has_multi_file(self) -> bool:
         return any(len(s.get("files", [])) > 1 for s in self.staged)
-
-    @rx.event
-    def set_new_startup_name(self, value: str):
-        self.new_startup_name = value
 
     # Progress tracking
     progress_total: int = 0
@@ -106,42 +188,7 @@ class RunState(rx.State):
                 "A previous run was interrupted (server restarted). "
                 "Start a new run when ready."
             )
-
-    @rx.event
-    async def upload_files(self, files: list[rx.UploadFile]):
-        self.upload_error = ""
-        name = self.new_startup_name.strip()
-        if not name:
-            self.upload_error = "Startup name is required."
-            return
-        if not files:
-            self.upload_error = "Select at least one file."
-            return
-
-        ALLOWED = {".pdf", ".docx", ".txt", ".md"}
-        target_dir = STARTUPS_DIR / name
-        target_dir.mkdir(parents=True, exist_ok=True)
-
-        saved: list[str] = []
-        for upload in files:
-            suffix = Path(upload.filename or "").suffix.lower()
-            if suffix not in ALLOWED:
-                self.upload_error = (
-                    f"File type '{suffix}' not allowed. Use: {', '.join(ALLOWED)}"
-                )
-                return
-            dest = target_dir / (upload.filename or "upload")
-            dest.write_bytes(await upload.read())
-            saved.append(upload.filename or "upload")
-
-        # Update staged list
-        idx = next((i for i, s in enumerate(self.staged) if s["name"] == name), -1)
-        if idx >= 0:
-            self.staged[idx] = {"name": name, "files": saved}
-        else:
-            self.staged = self.staged + [{"name": name, "files": saved}]
-
-        self.new_startup_name = ""
+        yield rx.call_script(_folder_picker_js(_get_backend_base()))
 
     @rx.event
     def remove_startup(self, name: str):
