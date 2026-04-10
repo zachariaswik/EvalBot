@@ -12,7 +12,12 @@ echo "--- Pulling latest code ---"
 git pull
 
 echo "--- Installing/updating dependencies ---"
-.venv/bin/pip install --quiet -r requirements.txt
+# --no-deps skips the dependency resolver.  requirements.txt is a complete
+# pip freeze (all transitive deps pinned), so every package is already listed.
+# This is necessary because crewai (click~=8.1.7) and reflex (click>=8.2)
+# declare incompatible click bounds, but the pinned click==8.3.2 works fine
+# at runtime — the resolver just can't figure that out.
+.venv/bin/pip install --quiet --no-deps -r requirements.txt
 
 echo "--- Running tests ---"
 .venv/bin/python -m pytest tests/ -q
