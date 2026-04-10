@@ -161,6 +161,13 @@ class RunState(rx.State):
     def has_multi_file(self) -> bool:
         return any(len(s.get("files", [])) > 1 for s in self.staged)
 
+    @rx.var
+    def staged_visible(self) -> list[dict]:
+        """Staged list after applying the single-file filter."""
+        if not self.filter_single:
+            return self.staged
+        return [s for s in self.staged if len(s.get("files", [])) > 1]
+
     # Progress tracking
     progress_total: int = 0
     progress_completed: list[dict] = []

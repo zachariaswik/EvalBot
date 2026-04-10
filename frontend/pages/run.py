@@ -660,11 +660,18 @@ def run_page() -> rx.Component:
                     style={"marginBottom": "12px"},
                 ),
                 rx.cond(
-                    RunState.staged.length() == 0,
-                    rx.text("No startups staged yet — upload files above.", style={"padding": "16px 0", "textAlign": "center", "color": TEXT_4, "fontSize": "13px"}),
+                    RunState.staged_visible.length() == 0,
+                    rx.text(
+                        rx.cond(
+                            RunState.staged.length() == 0,
+                            "No startups staged yet — choose a folder above.",
+                            "All staged startups have a single file (filter active).",
+                        ),
+                        style={"padding": "16px 0", "textAlign": "center", "color": TEXT_4, "fontSize": "13px"},
+                    ),
                     rx.vstack(
                         rx.foreach(
-                            RunState.staged,
+                            RunState.staged_visible,
                             staged_row,
                         ),
                         spacing="1",

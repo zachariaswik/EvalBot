@@ -153,6 +153,5 @@ websocket-client==1.9.0
 websockets==16.0
 yarl==1.23.0
 zipp==3.23.0
-# reflex removed - causes complex dependency conflicts, manage separately if needed
-# reflex==0.8.28.post1
-# reflex-hosting-cli==0.1.62
+reflex==0.8.28.post1
+reflex-hosting-cli==0.1.62
