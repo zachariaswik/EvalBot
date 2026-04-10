@@ -9,6 +9,7 @@ cd "$DEPLOY_DIR"
 echo "=== EvalBot deploy: $(date) ==="
 
 echo "--- Pulling latest code ---"
+git checkout -- .   # discard any server-side drift before pulling
 git pull
 
 echo "--- Installing/updating dependencies ---"
