@@ -1249,86 +1249,147 @@ class TestRunPageActions:
         assert progress_total == 5
 
     def test_progress_startup_start(self):
-        """STARTUP_START updates current name and resets agent tracking."""
-        progress_current_name = ""
-        progress_current_agent = 3
-        progress_done_agents: list[int] = [1, 2, 3]
-        progress_elapsed = 120
+        """STARTUP_START adds a new entry to progress_active."""
+        progress_active: list[dict] = []
+        progress_total = 0
 
         data = {"name": "AlphaCo", "total": 5}
-        progress_current_name = data.get("name", "")
-        progress_current_agent = 0
-        progress_done_agents = []
-        progress_elapsed = 0
+        name = data.get("name", "")
+        progress_total = data.get("total", progress_total)
+        entry = {
+            "name": name, "elapsed_s": 0, "current_role": "",
+            "a1_done": False, "a1_active": False,
+            "a2_done": False, "a2_active": False,
+            "a3_done": False, "a3_active": False,
+            "a4_done": False, "a4_active": False,
+            "a5_done": False, "a5_active": False,
+            "a6_done": False, "a6_active": False,
+        }
+        progress_active = progress_active + [entry]
 
-        assert progress_current_name == "AlphaCo"
-        assert progress_current_agent == 0
-        assert progress_done_agents == []
-        assert progress_elapsed == 0
+        assert progress_total == 5
+        assert len(progress_active) == 1
+        assert progress_active[0]["name"] == "AlphaCo"
+        assert progress_active[0]["a1_done"] is False
+        assert progress_active[0]["a1_active"] is False
 
     def test_progress_agent_start(self):
-        """AGENT_START sets current agent number and role."""
-        progress_current_agent = 0
-        progress_current_role = ""
-        data = {"agent": 3, "role": "Market & Competition Analyst"}
-        progress_current_agent = data.get("agent", 0)
-        progress_current_role = data.get("role", "")
-        assert progress_current_agent == 3
-        assert progress_current_role == "Market & Competition Analyst"
+        """AGENT_START marks the agent active and sets current_role on the matching entry."""
+        progress_active = [
+            {"name": "AlphaCo", "elapsed_s": 10, "current_role": "",
+             "a1_done": True, "a1_active": False,
+             "a2_done": False, "a2_active": False,
+             "a3_done": False, "a3_active": False,
+             "a4_done": False, "a4_active": False,
+             "a5_done": False, "a5_active": False,
+             "a6_done": False, "a6_active": False}
+        ]
+        data = {"name": "AlphaCo", "agent": 2, "role": "Market & Competition Analyst"}
+        name = data.get("name", "")
+        agent = data.get("agent", 0)
+        role = data.get("role", "")
+        if 1 <= agent <= 6:
+            progress_active = [
+                {**e, f"a{agent}_active": True, "current_role": role}
+                if e["name"] == name else e
+                for e in progress_active
+            ]
+
+        assert progress_active[0]["a2_active"] is True
+        assert progress_active[0]["current_role"] == "Market & Competition Analyst"
+        assert progress_active[0]["a1_active"] is False  # unchanged
 
     def test_progress_agent_done(self):
-        """AGENT_DONE adds to done list and clears current agent."""
-        progress_done_agents: list[int] = [1, 2]
-        progress_current_agent = 3
-        progress_current_role = "Market & Competition Analyst"
-        data = {"agent": 3}
-
+        """AGENT_DONE marks agent done, clears active flag and current_role."""
+        progress_active = [
+            {"name": "AlphaCo", "elapsed_s": 30, "current_role": "Market & Competition Analyst",
+             "a1_done": True, "a1_active": False,
+             "a2_done": False, "a2_active": False,
+             "a3_done": False, "a3_active": True,
+             "a4_done": False, "a4_active": False,
+             "a5_done": False, "a5_active": False,
+             "a6_done": False, "a6_active": False}
+        ]
+        data = {"name": "AlphaCo", "agent": 3}
+        name = data.get("name", "")
         agent = data.get("agent", 0)
-        if agent not in progress_done_agents:
-            progress_done_agents = progress_done_agents + [agent]
-        progress_current_agent = 0
-        progress_current_role = ""
+        if 1 <= agent <= 6:
+            progress_active = [
+                {**e, f"a{agent}_done": True, f"a{agent}_active": False, "current_role": ""}
+                if e["name"] == name else e
+                for e in progress_active
+            ]
 
-        assert 3 in progress_done_agents
-        assert progress_done_agents == [1, 2, 3]
-        assert progress_current_agent == 0
-        assert progress_current_role == ""
+        assert progress_active[0]["a3_done"] is True
+        assert progress_active[0]["a3_active"] is False
+        assert progress_active[0]["current_role"] == ""
+        assert progress_active[0]["a1_done"] is True  # unchanged
 
     def test_progress_agent_done_no_duplicate(self):
-        """AGENT_DONE does not add duplicate if agent already in done list."""
-        progress_done_agents: list[int] = [1, 2, 3]
-        data = {"agent": 2}  # already in list
+        """AGENT_DONE is idempotent — marking an already-done agent done again is safe."""
+        progress_active = [
+            {"name": "AlphaCo", "elapsed_s": 40, "current_role": "",
+             "a1_done": True, "a1_active": False,
+             "a2_done": True, "a2_active": False,
+             "a3_done": True, "a3_active": False,
+             "a4_done": False, "a4_active": False,
+             "a5_done": False, "a5_active": False,
+             "a6_done": False, "a6_active": False}
+        ]
+        data = {"name": "AlphaCo", "agent": 2}  # agent 2 already done
+        name = data.get("name", "")
         agent = data.get("agent", 0)
-        if agent not in progress_done_agents:
-            progress_done_agents = progress_done_agents + [agent]
-        assert progress_done_agents.count(2) == 1  # no duplicate
+        if 1 <= agent <= 6:
+            progress_active = [
+                {**e, f"a{agent}_done": True, f"a{agent}_active": False, "current_role": ""}
+                if e["name"] == name else e
+                for e in progress_active
+            ]
+
+        assert progress_active[0]["a2_done"] is True   # still True, not lost
+        assert progress_active[0]["a3_done"] is True   # unchanged
 
     def test_progress_startup_done(self):
-        """STARTUP_DONE adds entry to completed list and clears current startup."""
-        progress_completed: list[dict] = [{"name": "BetaCo", "elapsed_s": 60}]
-        progress_current_name = "AlphaCo"
-        progress_done_agents: list[int] = [1, 2, 3, 4, 5, 6]
-        progress_elapsed = 95
+        """STARTUP_DONE moves entry from progress_active to progress_completed."""
+        progress_active = [
+            {"name": "AlphaCo", "elapsed_s": 95, "current_role": "",
+             "a1_done": True, "a1_active": False,
+             "a2_done": True, "a2_active": False,
+             "a3_done": True, "a3_active": False,
+             "a4_done": True, "a4_active": False,
+             "a5_done": True, "a5_active": False,
+             "a6_done": True, "a6_active": False},
+            {"name": "BetaCo", "elapsed_s": 60, "current_role": "Intake Parser",
+             "a1_done": False, "a1_active": True,
+             "a2_done": False, "a2_active": False,
+             "a3_done": False, "a3_active": False,
+             "a4_done": False, "a4_active": False,
+             "a5_done": False, "a5_active": False,
+             "a6_done": False, "a6_active": False},
+        ]
+        progress_completed: list[dict] = []
         data = {"name": "AlphaCo", "elapsed_s": 95}
 
-        entry = {"name": data.get("name", ""), "elapsed_s": data.get("elapsed_s", 0)}
-        progress_completed = progress_completed + [entry]
-        progress_current_name = ""
-        progress_current_agent = 0
-        progress_done_agents = []
-        progress_elapsed = 0
+        name = data.get("name", "")
+        elapsed_s = data.get("elapsed_s", 0)
+        completed_entry = {"name": name, "elapsed_s": elapsed_s, "timed_out": False}
+        progress_completed = progress_completed + [completed_entry]
+        progress_active = [e for e in progress_active if e["name"] != name]
 
-        assert len(progress_completed) == 2
-        assert progress_completed[1]["name"] == "AlphaCo"
-        assert progress_completed[1]["elapsed_s"] == 95
-        assert progress_current_name == ""
-        assert progress_done_agents == []
+        assert len(progress_completed) == 1
+        assert progress_completed[0]["name"] == "AlphaCo"
+        assert progress_completed[0]["elapsed_s"] == 95
+        assert progress_completed[0]["timed_out"] is False
+        assert len(progress_active) == 1
+        assert progress_active[0]["name"] == "BetaCo"
 
     def test_progress_unknown_event_ignored(self):
         """Unknown PROGRESS event type does not crash."""
         event_type = "UNKNOWN_EVENT"
         data = {"foo": "bar"}
         progress_total = 0
+        progress_active: list[dict] = []
+        progress_ranking = False
 
         # Simulate the match logic — unknown events just do nothing
         if event_type == "BATCH_START":
@@ -1341,9 +1402,47 @@ class TestRunPageActions:
             pass
         elif event_type == "STARTUP_DONE":
             pass
+        elif event_type == "STARTUP_TIMEOUT":
+            pass
+        elif event_type == "RANKING_START":
+            progress_ranking = True
         # else: ignored
 
-        assert progress_total == 0  # unchanged
+        assert progress_total == 0      # unchanged
+        assert progress_active == []    # unchanged
+        assert progress_ranking is False  # unchanged
+
+    def test_progress_startup_timeout(self):
+        """STARTUP_TIMEOUT moves entry to completed with timed_out=True."""
+        progress_active = [
+            {"name": "SlowCo", "elapsed_s": 900, "current_role": "Founder Fit Analyst",
+             "a1_done": True, "a1_active": False,
+             "a2_done": True, "a2_active": False,
+             "a3_done": True, "a3_active": False,
+             "a4_done": True, "a4_active": False,
+             "a5_done": False, "a5_active": True,
+             "a6_done": False, "a6_active": False},
+        ]
+        progress_completed: list[dict] = []
+        data = {"name": "SlowCo", "elapsed_s": 900}
+
+        name = data.get("name", "")
+        elapsed_s = data.get("elapsed_s", 0)
+        timeout_entry = {"name": name, "elapsed_s": elapsed_s, "timed_out": True}
+        progress_completed = progress_completed + [timeout_entry]
+        progress_active = [e for e in progress_active if e["name"] != name]
+
+        assert len(progress_completed) == 1
+        assert progress_completed[0]["name"] == "SlowCo"
+        assert progress_completed[0]["timed_out"] is True
+        assert len(progress_active) == 0
+
+    def test_progress_ranking_start(self):
+        """RANKING_START sets progress_ranking=True."""
+        progress_ranking = False
+        # Simulate RANKING_START handler
+        progress_ranking = True
+        assert progress_ranking is True
 
     def test_progress_parsing_ansi_stripped(self):
         """ANSI escape codes are stripped from log lines."""

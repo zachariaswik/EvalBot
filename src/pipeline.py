@@ -647,7 +647,7 @@ class StartupEvalPipeline:
                 fallback_func = None
 
             print(f"  ⏱ Agent {agent_num} starting at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-            _progress("AGENT_START", agent=agent_num, role=_AGENT_ROLES.get(agent_num, "Unknown"))
+            _progress("AGENT_START", agent=agent_num, role=_AGENT_ROLES.get(agent_num, "Unknown"), name=self.state.startup_name)
 
             # Start live counter thread
             stop_event = threading.Event()
@@ -730,7 +730,7 @@ class StartupEvalPipeline:
             agent_timings[agent_num] = agent_duration
             mins, secs = divmod(int(agent_duration), 60)
             print(f"  ✓ Agent {agent_num} completed in {mins}m {secs}s")
-            _progress("AGENT_DONE", agent=agent_num, role=_AGENT_ROLES.get(agent_num, "Unknown"), elapsed_s=int(agent_duration))
+            _progress("AGENT_DONE", agent=agent_num, role=_AGENT_ROLES.get(agent_num, "Unknown"), elapsed_s=int(agent_duration), name=self.state.startup_name)
 
             # Capture token usage with actual model used (may differ from intended if fallback)
             usage = result.token_usage
@@ -934,6 +934,7 @@ def _run_one(
             "elapsed_seconds": int(e.elapsed),
             "limit_seconds": int(e.limit),
         }
+        _progress("STARTUP_TIMEOUT", name=name, elapsed_s=int(time.time() - wall_start))
         return name, error_output, e
 
 
@@ -980,6 +981,7 @@ def run_batch(
     print(f"\n{'#'*60}")
     print(f"  Running Agent 7: Cohort Ranking")
     print(f"{'#'*60}\n")
+    _progress("RANKING_START")
 
     init_db()
     batch_data = get_all_batch_outputs(bid)

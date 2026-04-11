@@ -33,47 +33,90 @@ DARK_GREEN = "#4ade80"
 DARK_RED = "#f87171"
 
 
-# ── Agent progress bars ────────────────────────────────────────────────────────
+# ── Per-startup agent dot (reads from the startup's entry dict) ────────────────
 
-def agent_bar(n: int) -> rx.Component:
-    is_done = RunState.progress_done_agents.contains(n)
-    is_current = (RunState.progress_current_agent == n) & ~is_done
+def _agent_dot(n: int, entry: dict) -> rx.Component:
+    """Small square agent indicator — reads precomputed done/active from entry."""
+    is_done = entry[f"a{n}_done"]
+    is_active = entry[f"a{n}_active"]
 
-    bar_bg = rx.cond(
+    bg = rx.cond(
         is_done,
-        "rgba(74,222,128,0.7)",
-        rx.cond(is_current, DARK_BLUE, "rgba(255,255,255,0.0)"),
+        "rgba(74,222,128,0.18)",
+        rx.cond(is_active, "rgba(74,143,214,0.25)", "rgba(255,255,255,0.04)"),
     )
-    bar_w = rx.cond(is_done | is_current, "100%", "0%")
-
+    border = rx.cond(
+        is_done,
+        "rgba(74,222,128,0.4)",
+        rx.cond(is_active, "rgba(74,143,214,0.5)", "rgba(255,255,255,0.07)"),
+    )
     icon = rx.cond(
         is_done,
-        rx.html('<svg width="11" height="11" viewBox="0 0 11 11" fill="none"><circle cx="5.5" cy="5.5" r="5" stroke="rgba(74,222,128,0.55)" stroke-width="0.8"/><polyline points="2.5,5.5 4.5,7.5 8.5,3.5" stroke="rgba(74,222,128,0.9)" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
+        rx.html('<svg width="8" height="8" viewBox="0 0 8 8" fill="none"><polyline points="1.5,4 3,5.5 6.5,2" stroke="rgba(74,222,128,0.9)" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>'),
         rx.cond(
-            is_current,
-            rx.spinner(size="1", style={"color": DARK_BLUE}),
-            rx.box(style={"width": "11px", "height": "11px"}),
+            is_active,
+            rx.spinner(size="1", style={"color": DARK_BLUE, "width": "9px", "height": "9px"}),
+            rx.text(str(n), style={"fontFamily": "'Courier New', monospace", "fontSize": "8px", "color": "rgba(255,255,255,0.2)", "fontWeight": "600", "lineHeight": "1"}),
         ),
     )
 
-    return rx.hstack(
-        rx.text(f"A{n}", style={"fontFamily": "'Courier New', monospace", "fontSize": "9px", "color": "rgba(255,255,255,0.18)", "width": "18px", "flexShrink": "0"}),
-        rx.box(
-            rx.box(
-                style={
-                    "height": "100%",
-                    "borderRadius": "2px",
-                    "background": bar_bg,
-                    "width": bar_w,
-                    "transition": "width 0.4s, background 0.4s",
-                }
+    return rx.box(
+        icon,
+        style={
+            "width": "26px", "height": "26px", "borderRadius": "6px",
+            "background": bg, "border": f"1px solid {border}",
+            "display": "flex", "alignItems": "center", "justifyContent": "center",
+            "transition": "all 0.35s",
+        },
+    )
+
+
+# ── Active startup card (one per concurrently-running startup) ─────────────────
+
+def startup_card(entry: dict) -> rx.Component:
+    """Compact card showing one startup's live agent progress."""
+    has_active = (
+        entry["a1_active"] | entry["a2_active"] | entry["a3_active"]
+        | entry["a4_active"] | entry["a5_active"] | entry["a6_active"]
+    )
+    return rx.box(
+        rx.hstack(
+            rx.text(
+                entry["name"],
+                style={"fontSize": "13px", "fontWeight": "700", "color": "white",
+                       "overflow": "hidden", "textOverflow": "ellipsis", "whiteSpace": "nowrap", "flex": "1"},
             ),
-            style={"flex": "1", "height": "3px", "background": "rgba(255,255,255,0.06)", "borderRadius": "2px", "overflow": "hidden"},
+            rx.text(
+                entry["elapsed_s"].to(str) + "s",
+                style={"fontFamily": "'Courier New', monospace", "fontSize": "10px",
+                       "color": "rgba(74,143,214,0.5)", "flexShrink": "0"},
+            ),
+            align="center", width="100%",
+            style={"marginBottom": "10px"},
         ),
-        rx.box(icon, style={"width": "14px", "flexShrink": "0", "display": "flex", "justifyContent": "center"}),
-        spacing="2",
-        align="center",
-        width="100%",
+        rx.hstack(
+            *[_agent_dot(n, entry) for n in range(1, 7)],
+            spacing="1",
+        ),
+        rx.cond(
+            has_active,
+            rx.text(
+                entry["current_role"],
+                style={"fontFamily": "'Courier New', monospace", "fontSize": "9px",
+                       "color": "rgba(74,143,214,0.45)", "marginTop": "8px",
+                       "letterSpacing": "0.04em", "overflow": "hidden",
+                       "textOverflow": "ellipsis", "whiteSpace": "nowrap"},
+            ),
+            rx.box(),
+        ),
+        style={
+            "background": "rgba(74,143,214,0.07)",
+            "border": "1px solid rgba(74,143,214,0.13)",
+            "borderRadius": "11px",
+            "padding": "14px 16px",
+            "flex": "1",
+            "minWidth": "220px",
+        },
     )
 
 
@@ -131,16 +174,34 @@ def staged_row(s: dict) -> rx.Component:
 # ── Completed startup entry (in terminal) ─────────────────────────────────────
 
 def completed_entry(entry: dict) -> rx.Component:
-    return rx.hstack(
-        rx.text(entry["name"], style={"fontSize": "11px", "fontWeight": "600", "color": "rgba(74,222,128,0.8)", "overflow": "hidden", "textOverflow": "ellipsis", "whiteSpace": "nowrap"}),
-        rx.text(
-            entry["elapsed_s"].to(str) + "s",
-            style={"fontFamily": "'Courier New', monospace", "fontSize": "9px", "color": "rgba(74,222,128,0.4)", "flexShrink": "0"},
+    return rx.cond(
+        entry["timed_out"],
+        # Timed-out style (red)
+        rx.hstack(
+            rx.hstack(
+                rx.text(entry["name"], style={"fontSize": "11px", "fontWeight": "600", "color": "rgba(248,113,113,0.8)", "overflow": "hidden", "textOverflow": "ellipsis", "whiteSpace": "nowrap"}),
+                rx.text("⏰", style={"fontSize": "9px", "flexShrink": "0"}),
+                spacing="1", align="center", flex="1", style={"minWidth": "0"},
+            ),
+            rx.text(
+                entry["elapsed_s"].to(str) + "s",
+                style={"fontFamily": "'Courier New', monospace", "fontSize": "9px", "color": "rgba(248,113,113,0.4)", "flexShrink": "0"},
+            ),
+            justify="between", align="center",
+            style={"padding": "4px 8px", "background": "rgba(248,113,113,0.05)", "borderRadius": "4px", "borderLeft": "2px solid rgba(248,113,113,0.35)"},
+            width="100%",
         ),
-        justify="between",
-        align="center",
-        style={"padding": "4px 8px", "background": "rgba(74,222,128,0.05)", "borderRadius": "4px", "borderLeft": "2px solid rgba(74,222,128,0.35)"},
-        width="100%",
+        # Success style (green)
+        rx.hstack(
+            rx.text(entry["name"], style={"fontSize": "11px", "fontWeight": "600", "color": "rgba(74,222,128,0.8)", "overflow": "hidden", "textOverflow": "ellipsis", "whiteSpace": "nowrap"}),
+            rx.text(
+                entry["elapsed_s"].to(str) + "s",
+                style={"fontFamily": "'Courier New', monospace", "fontSize": "9px", "color": "rgba(74,222,128,0.4)", "flexShrink": "0"},
+            ),
+            justify="between", align="center",
+            style={"padding": "4px 8px", "background": "rgba(74,222,128,0.05)", "borderRadius": "4px", "borderLeft": "2px solid rgba(74,222,128,0.35)"},
+            width="100%",
+        ),
     )
 
 
@@ -281,75 +342,54 @@ def pipeline_monitor() -> rx.Component:
                     ),
                     rx.box(),
                 ),
-                rx.hstack(
-                    # Left: current startup + agent bars
+                # Active startup cards (parallel grid)
+                rx.cond(
+                    RunState.progress_active.length() > 0,
+                    rx.box(
+                        rx.foreach(RunState.progress_active, startup_card),
+                        style={
+                            "display": "flex",
+                            "flexWrap": "wrap",
+                            "gap": "12px",
+                            "marginBottom": "18px",
+                        },
+                    ),
+                    # Show spinner while waiting for first STARTUP_START
+                    rx.hstack(
+                        rx.spinner(size="1", style={"color": "rgba(255,255,255,0.2)"}),
+                        rx.text("Initialising…", style={"fontSize": "11px", "color": "rgba(255,255,255,0.2)", "fontFamily": "'Courier New', monospace"}),
+                        spacing="2",
+                        align="center",
+                        style={"padding": "12px 0", "marginBottom": "12px"},
+                    ),
+                ),
+                # Ranking phase indicator
+                rx.cond(
+                    RunState.progress_ranking,
+                    rx.hstack(
+                        rx.spinner(size="1", style={"color": DARK_BLUE}),
+                        rx.text("Ranking cohort…", style={"fontFamily": "'Courier New', monospace", "fontSize": "11px", "color": "rgba(74,143,214,0.65)", "letterSpacing": "0.04em"}),
+                        spacing="2",
+                        align="center",
+                        style={"padding": "10px 0", "marginBottom": "12px"},
+                    ),
+                    rx.box(),
+                ),
+                # Completed startups
+                rx.cond(
+                    RunState.progress_completed.length() > 0,
                     rx.vstack(
-                        rx.box(
-                            rx.text("Now Processing", style={"fontFamily": "'Courier New', monospace", "fontSize": "9px", "color": "rgba(74,143,214,0.55)", "letterSpacing": "0.08em", "textTransform": "uppercase", "marginBottom": "6px"}),
-                            rx.cond(
-                                RunState.progress_current_name != "",
-                                rx.vstack(
-                                    rx.text(RunState.progress_current_name, style={"fontSize": "16px", "fontWeight": "700", "color": "white", "overflow": "hidden", "textOverflow": "ellipsis", "whiteSpace": "nowrap", "marginBottom": "3px"}),
-                                    rx.cond(
-                                        RunState.progress_current_role != "",
-                                        rx.text(RunState.progress_current_role, style={"fontSize": "11px", "color": "rgba(255,255,255,0.3)"}),
-                                        rx.box(),
-                                    ),
-                                    spacing="0",
-                                    align="start",
-                                    width="100%",
-                                ),
-                                rx.hstack(
-                                    rx.spinner(size="1", style={"color": "rgba(255,255,255,0.2)"}),
-                                    rx.text("Initialising…", style={"fontSize": "11px", "color": "rgba(255,255,255,0.2)"}),
-                                    spacing="2",
-                                    align="center",
-                                ),
-                            ),
-                            style={"padding": "14px 16px", "background": "rgba(74,143,214,0.08)", "borderRadius": "9px", "border": "1px solid rgba(74,143,214,0.14)", "marginBottom": "16px"},
-                        ),
+                        rx.text("Done", style={"fontFamily": "'Courier New', monospace", "fontSize": "9px", "color": "rgba(255,255,255,0.2)", "letterSpacing": "0.07em", "textTransform": "uppercase", "marginBottom": "6px"}),
                         rx.vstack(
-                            *[agent_bar(n) for n in range(1, 7)],
-                            spacing="2",
+                            rx.foreach(RunState.progress_completed, completed_entry),
+                            spacing="1",
+                            style={"maxHeight": "160px", "overflowY": "auto"},
                             width="100%",
                         ),
                         spacing="0",
                         align="start",
-                        flex="1",
                     ),
-                    # Right: elapsed + completed
-                    rx.vstack(
-                        rx.vstack(
-                            rx.text(
-                                RunState.progress_elapsed.to(str) + "s",
-                                style={"fontFamily": "'Georgia', serif", "fontSize": "38px", "fontWeight": "900", "color": DARK_BLUE, "lineHeight": "1", "letterSpacing": "-0.03em"},
-                            ),
-                            rx.text("ELAPSED", style={"fontFamily": "'Courier New', monospace", "fontSize": "9px", "color": "rgba(74,143,214,0.4)", "letterSpacing": "0.06em", "marginTop": "3px"}),
-                            spacing="0",
-                            align="end",
-                            style={"marginBottom": "16px"},
-                        ),
-                        rx.cond(
-                            RunState.progress_completed.length() > 0,
-                            rx.vstack(
-                                rx.text("Done", style={"fontFamily": "'Courier New', monospace", "fontSize": "9px", "color": "rgba(255,255,255,0.2)", "letterSpacing": "0.07em", "textTransform": "uppercase", "marginBottom": "6px"}),
-                                rx.vstack(
-                                    rx.foreach(RunState.progress_completed, completed_entry),
-                                    spacing="1",
-                                    style={"maxHeight": "120px", "overflowY": "auto"},
-                                    width="100%",
-                                ),
-                                spacing="0",
-                                align="start",
-                            ),
-                            rx.box(),
-                        ),
-                        spacing="0",
-                        align="end",
-                        style={"minWidth": "160px"},
-                    ),
-                    spacing="5",
-                    align="start",
+                    rx.box(),
                 ),
                 style={"padding": "22px 24px"},
             ),

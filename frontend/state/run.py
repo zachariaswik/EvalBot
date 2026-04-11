@@ -260,12 +260,12 @@ class RunState(rx.State):
 
     # Progress tracking
     progress_total: int = 0
-    progress_completed: list[dict] = []
-    progress_current_name: str = ""
-    progress_current_agent: int = 0
-    progress_current_role: str = ""
-    progress_done_agents: list[int] = []
-    progress_elapsed: int = 0
+    progress_completed: list[dict] = []  # [{name, elapsed_s, timed_out}]
+    # Parallel active startups — one entry per concurrently-running startup.
+    # Each entry: {name, elapsed_s, current_role,
+    #              a1_done, a1_active, ..., a6_done, a6_active}
+    progress_active: list[dict] = []
+    progress_ranking: bool = False  # True while Agent 7 ranking is running
 
     @rx.event
     async def load_staged(self):
@@ -314,11 +314,8 @@ class RunState(rx.State):
             self.run_error = ""
             self.progress_total = 0
             self.progress_completed = []
-            self.progress_current_name = ""
-            self.progress_current_agent = 0
-            self.progress_current_role = ""
-            self.progress_done_agents = []
-            self.progress_elapsed = 0
+            self.progress_active = []
+            self.progress_ranking = False
 
         job_id = str(uuid.uuid4())
         _write_run_state(job_id, "running")
@@ -358,21 +355,25 @@ class RunState(rx.State):
                 env={**os.environ, "PYTHONUNBUFFERED": "1"},
             )
 
-            # Track elapsed time
-            start_time: float | None = None
+            # Per-startup start times (name → loop.time() when STARTUP_START received)
+            startup_start_times: dict[str, float] = {}
             elapsed_task: asyncio.Task | None = None
 
             async def _tick_elapsed():
-                nonlocal start_time
+                """Update elapsed_s for every active startup once per second."""
                 while True:
                     await asyncio.sleep(1)
-                    if start_time is None:
-                        continue
-                    # Skip update if client already disconnected (task cancelled)
                     try:
-                        elapsed = int(asyncio.get_event_loop().time() - start_time)
+                        loop = asyncio.get_event_loop()
                         async with self:
-                            self.progress_elapsed = elapsed
+                            if not self.progress_active:
+                                continue
+                            updated = []
+                            for e in self.progress_active:
+                                t0 = startup_start_times.get(e["name"])
+                                new_elapsed = int(loop.time() - t0) if t0 else e["elapsed_s"]
+                                updated.append({**e, "elapsed_s": new_elapsed})
+                            self.progress_active = updated
                     except asyncio.CancelledError:
                         break
 
@@ -396,13 +397,11 @@ class RunState(rx.State):
                         except Exception:
                             data = {}
                         try:
-                            await self._handle_progress(event_type, data, start_time)
+                            await self._handle_progress(event_type, data, startup_start_times)
                         except asyncio.CancelledError:
                             raise
                         except Exception:
                             pass
-                        if event_type == "STARTUP_START":
-                            start_time = asyncio.get_event_loop().time()
                 else:
                     try:
                         async with self:
@@ -442,49 +441,83 @@ class RunState(rx.State):
         self,
         event_type: str,
         data: dict,
-        start_time: float | None,
+        startup_start_times: dict,
     ) -> None:
-        """Update progress state based on PROGRESS events."""
+        """Update progress state based on PROGRESS events (parallel-aware)."""
         loop = asyncio.get_event_loop()
+
+        def _make_entry(name: str) -> dict:
+            return {
+                "name": name, "elapsed_s": 0, "current_role": "",
+                "a1_done": False, "a1_active": False,
+                "a2_done": False, "a2_active": False,
+                "a3_done": False, "a3_active": False,
+                "a4_done": False, "a4_active": False,
+                "a5_done": False, "a5_active": False,
+                "a6_done": False, "a6_active": False,
+            }
 
         if event_type == "BATCH_START":
             async with self:
                 self.progress_total = data.get("total", 0)
 
         elif event_type == "STARTUP_START":
+            name = data.get("name", "")
+            startup_start_times[name] = loop.time()
             async with self:
                 self.progress_total = data.get("total", self.progress_total)
-                self.progress_current_name = data.get("name", "")
-                self.progress_current_agent = 0
-                self.progress_current_role = ""
-                self.progress_done_agents = []
-                self.progress_elapsed = 0
+                # Add a new active entry for this startup
+                self.progress_active = self.progress_active + [_make_entry(name)]
 
         elif event_type == "AGENT_START":
-            async with self:
-                self.progress_current_agent = data.get("agent", 0)
-                self.progress_current_role = data.get("role", "")
+            name = data.get("name", "")
+            agent = data.get("agent", 0)
+            role = data.get("role", "")
+            if 1 <= agent <= 6:
+                async with self:
+                    # Fallback: if pipeline didn't send name, update first active entry
+                    if not name and len(self.progress_active) == 1:
+                        name = self.progress_active[0]["name"]
+                    self.progress_active = [
+                        {**e, f"a{agent}_active": True, "current_role": role}
+                        if e["name"] == name else e
+                        for e in self.progress_active
+                    ]
 
         elif event_type == "AGENT_DONE":
-            async with self:
-                agent = data.get("agent", 0)
-                if agent not in self.progress_done_agents:
-                    self.progress_done_agents = self.progress_done_agents + [agent]
-                self.progress_current_agent = 0
-                self.progress_current_role = ""
+            name = data.get("name", "")
+            agent = data.get("agent", 0)
+            if 1 <= agent <= 6:
+                async with self:
+                    if not name and len(self.progress_active) == 1:
+                        name = self.progress_active[0]["name"]
+                    self.progress_active = [
+                        {**e, f"a{agent}_done": True, f"a{agent}_active": False, "current_role": ""}
+                        if e["name"] == name else e
+                        for e in self.progress_active
+                    ]
 
         elif event_type == "STARTUP_DONE":
-            elapsed = 0
-            if start_time is not None:
-                elapsed = int(loop.time() - start_time)
+            name = data.get("name", "")
+            elapsed_s = data.get("elapsed_s", 0)
+            if not elapsed_s:
+                t0 = startup_start_times.get(name)
+                elapsed_s = int(loop.time() - t0) if t0 else 0
+            startup_start_times.pop(name, None)
             async with self:
-                entry = {
-                    "name": data.get("name", ""),
-                    "elapsed_s": data.get("elapsed_s", elapsed),
-                }
+                entry = {"name": name, "elapsed_s": elapsed_s, "timed_out": False}
                 self.progress_completed = self.progress_completed + [entry]
-                self.progress_current_name = ""
-                self.progress_current_agent = 0
-                self.progress_current_role = ""
-                self.progress_done_agents = []
-                self.progress_elapsed = 0
+                self.progress_active = [e for e in self.progress_active if e["name"] != name]
+
+        elif event_type == "STARTUP_TIMEOUT":
+            name = data.get("name", "")
+            elapsed_s = data.get("elapsed_s", 0)
+            startup_start_times.pop(name, None)
+            async with self:
+                entry = {"name": name, "elapsed_s": elapsed_s, "timed_out": True}
+                self.progress_completed = self.progress_completed + [entry]
+                self.progress_active = [e for e in self.progress_active if e["name"] != name]
+
+        elif event_type == "RANKING_START":
+            async with self:
+                self.progress_ranking = True
