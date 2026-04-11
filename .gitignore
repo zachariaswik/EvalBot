@@ -23,6 +23,7 @@ output/
 Startups/
 testStartups/
 startup_docs/
+input_docs/
 
 # Video files
 *.mov

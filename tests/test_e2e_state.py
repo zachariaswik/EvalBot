@@ -996,6 +996,53 @@ class TestRunPageActions:
         js = _folder_picker_js("")
         assert "uploadUrl = '/upload-startup'" in js
 
+    # ── _batch_picker_js ─────────────────────────────────────────────────────
+
+    def test_batch_picker_js_embeds_backend_url(self):
+        """_batch_picker_js injects the given backend base and upload endpoint."""
+        from frontend.state.run import _batch_picker_js
+        js = _batch_picker_js("http://localhost:8001")
+        assert "http://localhost:8001" in js
+        assert "upload-startup" in js
+
+    def test_batch_picker_js_targets_batch_input(self):
+        """_batch_picker_js targets the evalbot-batch-input element."""
+        from frontend.state.run import _batch_picker_js
+        js = _batch_picker_js("http://localhost:8001")
+        assert "evalbot-batch-input" in js
+
+    def test_batch_picker_js_empty_base_uses_relative(self):
+        """_batch_picker_js with empty backend_base falls back to /upload-startup."""
+        from frontend.state.run import _batch_picker_js
+        js = _batch_picker_js("")
+        assert "uploadUrl = '/upload-startup'" in js
+
+    # ── run_label computed var ────────────────────────────────────────────────
+
+    def test_run_label_empty_staged(self):
+        """run_label returns 'Run Batch' when no startups are staged."""
+        from frontend.state.run import RunState
+        state = RunState()
+        state.staged = []
+        assert state.run_label == "Run Batch"
+
+    def test_run_label_one_startup(self):
+        """run_label returns 'Run Single' when exactly one startup is staged."""
+        from frontend.state.run import RunState
+        state = RunState()
+        state.staged = [{"name": "AcmeCorp", "files": ["pitch.pdf"]}]
+        assert state.run_label == "Run Single"
+
+    def test_run_label_multiple_startups(self):
+        """run_label returns 'Run Batch' when two or more startups are staged."""
+        from frontend.state.run import RunState
+        state = RunState()
+        state.staged = [
+            {"name": "Alpha", "files": ["a.pdf"]},
+            {"name": "Beta", "files": ["b.pdf"]},
+        ]
+        assert state.run_label == "Run Batch"
+
     # ── _save_folder_files (upload endpoint helper) ───────────────────────────
 
     def test_save_folder_files_happy_path(self, tmp_path):

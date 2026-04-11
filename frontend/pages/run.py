@@ -517,7 +517,7 @@ def run_page() -> rx.Component:
                         RunState.status != "running",
                         rx.hstack(
                             rx.html('<svg width="10" height="12" viewBox="0 0 10 12" fill="currentColor"><polygon points="0,0 10,6 0,12"/></svg>'),
-                            rx.text("Run Batch", style={"color": "white", "fontSize": "14px", "fontWeight": "700"}),
+                            rx.text(RunState.run_label, style={"color": "white", "fontSize": "14px", "fontWeight": "700"}),
                             spacing="2",
                             align="center",
                         ),
@@ -564,52 +564,119 @@ def run_page() -> rx.Component:
                         rx.text("1", style={"fontFamily": "'Georgia', serif", "fontSize": "9px", "fontWeight": "900", "color": "white", "lineHeight": "1"}),
                         style={"width": "20px", "height": "20px", "borderRadius": "50%", "background": BLUE, "display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": "0"},
                     ),
-                    section_marker("Add startup"),
+                    section_marker("Add startup(s)"),
                     spacing="2",
                     align="center",
                     style={"marginBottom": "14px"},
                 ),
-                # Hidden native file input — JS wires webkitdirectory + onchange after mount
+                # Hidden native file inputs — JS wires webkitdirectory + onchange after mount
                 rx.el.input(
                     type="file",
                     id="evalbot-folder-input",
                     style={"display": "none"},
                 ),
-                # Folder picker button
-                rx.el.button(
-                    rx.hstack(
-                        rx.html(
-                            '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" '
-                            'stroke="currentColor" stroke-width="2">'
-                            '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>'
-                            "</svg>"
-                        ),
-                        rx.text("Choose Startup Folder"),
-                        spacing="2",
-                        align="center",
-                    ),
-                    on_click=rx.call_script(
-                        "document.getElementById('evalbot-folder-input').click()"
-                    ),
-                    disabled=RunState.status == "running",
-                    style={
-                        "padding": "8px 18px",
-                        "background": SURFACE_2,
-                        "border": f"1.5px solid {BORDER}",
-                        "borderRadius": "7px",
-                        "fontSize": "13px",
-                        "color": TEXT_2,
-                        "cursor": "pointer",
-                        "fontFamily": "'Plus Jakarta Sans', sans-serif",
-                        "fontWeight": "500",
-                        "transition": "border-color 0.15s",
-                        "_hover": {"borderColor": BLUE},
-                        "_disabled": {"opacity": "0.5", "cursor": "not-allowed"},
-                    },
+                rx.el.input(
+                    type="file",
+                    id="evalbot-batch-input",
+                    style={"display": "none"},
                 ),
-                rx.text(
-                    "The folder name becomes the startup name. Files inside: .pdf .docx .txt .md",
-                    style={"fontSize": "11px", "color": TEXT_3, "marginTop": "6px"},
+                # Two upload mode buttons side-by-side
+                rx.hstack(
+                    # Single Startup
+                    rx.vstack(
+                        rx.el.button(
+                            rx.hstack(
+                                rx.html(
+                                    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" '
+                                    'stroke="currentColor" stroke-width="2">'
+                                    '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>'
+                                    "</svg>"
+                                ),
+                                rx.text("Single Startup"),
+                                spacing="2",
+                                align="center",
+                            ),
+                            on_click=rx.call_script(
+                                "document.getElementById('evalbot-folder-input').click()"
+                            ),
+                            disabled=RunState.status == "running",
+                            style={
+                                "padding": "8px 18px",
+                                "background": SURFACE_2,
+                                "border": f"1.5px solid {BORDER}",
+                                "borderRadius": "7px",
+                                "fontSize": "13px",
+                                "color": TEXT_2,
+                                "cursor": "pointer",
+                                "fontFamily": "'Plus Jakarta Sans', sans-serif",
+                                "fontWeight": "500",
+                                "transition": "border-color 0.15s",
+                                "_hover": {"borderColor": BLUE},
+                                "_disabled": {"opacity": "0.5", "cursor": "not-allowed"},
+                            },
+                        ),
+                        rx.text(
+                            "Pick the startup folder directly — folder name becomes the startup name.",
+                            style={"fontSize": "11px", "color": TEXT_3, "marginTop": "4px"},
+                        ),
+                        spacing="0",
+                        align="start",
+                        flex="1",
+                    ),
+                    # Vertical divider
+                    rx.box(
+                        style={
+                            "width": "1px",
+                            "alignSelf": "stretch",
+                            "background": BORDER,
+                            "margin": "0 8px",
+                        }
+                    ),
+                    # Batch Folder
+                    rx.vstack(
+                        rx.el.button(
+                            rx.hstack(
+                                rx.html(
+                                    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" '
+                                    'stroke="currentColor" stroke-width="2">'
+                                    '<path d="M3 7a2 2 0 0 1 2-2h3.586a1 1 0 0 1 .707.293L11 7h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>'
+                                    '<rect x="3" y="10" width="18" height="9" rx="1"/>'
+                                    "</svg>"
+                                ),
+                                rx.text("Batch Folder"),
+                                spacing="2",
+                                align="center",
+                            ),
+                            on_click=rx.call_script(
+                                "document.getElementById('evalbot-batch-input').click()"
+                            ),
+                            disabled=RunState.status == "running",
+                            style={
+                                "padding": "8px 18px",
+                                "background": SURFACE_2,
+                                "border": f"1.5px solid {BORDER_2}",
+                                "borderRadius": "7px",
+                                "fontSize": "13px",
+                                "color": TEXT_2,
+                                "cursor": "pointer",
+                                "fontFamily": "'Plus Jakarta Sans', sans-serif",
+                                "fontWeight": "500",
+                                "transition": "border-color 0.15s",
+                                "_hover": {"borderColor": "#7c3aed"},
+                                "_disabled": {"opacity": "0.5", "cursor": "not-allowed"},
+                            },
+                        ),
+                        rx.text(
+                            "Pick a folder containing startup subfolders — each subfolder becomes one startup.",
+                            style={"fontSize": "11px", "color": TEXT_3, "marginTop": "4px"},
+                        ),
+                        spacing="0",
+                        align="start",
+                        flex="1",
+                    ),
+                    spacing="0",
+                    align="start",
+                    width="100%",
                 ),
                 style={"padding": "20px 24px", "borderBottom": f"1px solid {BORDER}"},
             ),

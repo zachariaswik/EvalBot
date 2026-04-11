@@ -107,6 +107,90 @@ def _folder_picker_js(backend_base: str) -> str:
 """
 
 
+def _batch_picker_js(backend_base: str) -> str:
+    """Build the JS that wires the hidden batch-input to POST multiple startups.
+
+    Groups files by the second path segment (parts[1]) — each subfolder becomes
+    one startup.  Files directly inside the picked folder (parts.length < 3) are
+    ignored.  Each group is POSTed sequentially to /upload-startup; on success
+    the page reloads.
+    """
+    return f"""
+(function () {{
+    var inp = document.getElementById('evalbot-batch-input');
+    if (!inp) return;
+    inp.setAttribute('webkitdirectory', '');
+    inp.setAttribute('multiple', '');
+    inp.onchange = function () {{
+        var files = Array.from(inp.files);
+        if (!files.length) return;
+        var allowed = ['.pdf', '.docx', '.txt', '.md'];
+
+        // Group files by second path segment (subfolder name)
+        var groups = {{}};
+        files.forEach(function(f) {{
+            var parts = f.webkitRelativePath.split('/');
+            if (parts.length < 3) return;  // skip top-level files
+            var startupName = parts[1];
+            var ext = f.name.toLowerCase();
+            if (!allowed.some(function(e) {{ return ext.endsWith(e); }})) return;
+            if (!groups[startupName]) groups[startupName] = [];
+            groups[startupName].push(f);
+        }});
+
+        var names = Object.keys(groups);
+        if (!names.length) {{
+            alert('No startup subfolders found with supported files (.pdf, .docx, .txt, .md).\\nMake sure you pick the parent folder that contains startup folders.');
+            inp.value = '';
+            return;
+        }}
+
+        // Resolve the upload URL (same logic as _folder_picker_js)
+        var backendBase = '{backend_base}';
+        var uploadUrl = '/upload-startup';
+        if (backendBase) {{
+            try {{
+                var u = new URL(backendBase);
+                var loopbacks = ['localhost', '0.0.0.0', '::', '0:0:0:0:0:0:0:0'];
+                if (loopbacks.indexOf(u.hostname) !== -1) {{
+                    u.hostname = window.location.hostname;
+                    if (window.location.protocol === 'https:') {{
+                        u.protocol = 'https:';
+                        u.port = '';
+                    }}
+                }}
+                uploadUrl = u.origin + '/upload-startup';
+            }} catch(e) {{}}
+        }}
+
+        // POST each group sequentially
+        function postNext(idx) {{
+            if (idx >= names.length) {{
+                window.location.reload();
+                return;
+            }}
+            var name = names[idx];
+            var fd = new FormData();
+            fd.append('startup_name', name);
+            groups[name].forEach(function(f) {{ fd.append('file', f, f.name); }});
+            fetch(uploadUrl, {{method: 'POST', body: fd}})
+                .then(function(r) {{ return r.json(); }})
+                .then(function(d) {{
+                    if (d.ok) {{ postNext(idx + 1); }}
+                    else {{ alert((d.error || 'Upload failed') + ' (' + name + ')'); inp.value = ''; }}
+                }})
+                .catch(function(err) {{
+                    console.error('EvalBot batch upload error:', err);
+                    alert('Upload failed \u2014 server error (' + name + ')');
+                    inp.value = '';
+                }});
+        }}
+        postNext(0);
+    }};
+}})();
+"""
+
+
 def _python_binary() -> str:
     for p in [
         PROJECT_ROOT / ".venv313" / "bin" / "python",
@@ -158,6 +242,12 @@ class RunState(rx.State):
     filter_single: bool = False
 
     @rx.var
+    def run_label(self) -> str:
+        if len(self.staged) == 1:
+            return "Run Single"
+        return "Run Batch"
+
+    @rx.var
     def has_multi_file(self) -> bool:
         return any(len(s.get("files", [])) > 1 for s in self.staged)
 
@@ -196,6 +286,7 @@ class RunState(rx.State):
                 "Start a new run when ready."
             )
         yield rx.call_script(_folder_picker_js(_get_backend_base()))
+        yield rx.call_script(_batch_picker_js(_get_backend_base()))
 
     @rx.event
     def remove_startup(self, name: str):
