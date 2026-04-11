@@ -8,6 +8,7 @@ import sqlite3
 import pytest
 
 from src.db import (
+    _connect,
     clear_hall_of_fame,
     create_batch,
     get_all_batch_outputs,
@@ -46,6 +47,13 @@ class TestInitDb:
         db = tmp_path / "idempotent.db"
         init_db(db)
         init_db(db)  # should not raise
+
+    def test_wal_mode_enabled(self, tmp_path):
+        """_connect() sets WAL journal mode for concurrent write safety."""
+        conn = _connect(tmp_path / "test_wal.db")
+        mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+        conn.close()
+        assert mode == "wal"
 
 
 # ---------------------------------------------------------------------------

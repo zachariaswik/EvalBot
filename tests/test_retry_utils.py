@@ -14,7 +14,10 @@ from src.retry_utils import (
     StartupTimeoutError,
     _classify_error,
     _execute_with_timeout,
+    _fs,
+    _get_startup_start_time,
     _is_connection_error,
+    _set_startup_start_time,
     execute_with_retry,
     get_fallback_stats,
     reset_fallback_state,
@@ -102,19 +105,19 @@ class TestFallbackState:
         reset_fallback_state()
 
     def test_reset_clears_active(self):
-        ru._fallback_state.active = True
+        _fs().active = True
         reset_fallback_state()
-        assert not ru._fallback_state.active
+        assert not _fs().active
 
     def test_reset_clears_fallback_count(self):
-        ru._fallback_state.fallback_count = 5
+        _fs().fallback_count = 5
         reset_fallback_state()
-        assert ru._fallback_state.fallback_count == 0
+        assert _fs().fallback_count == 0
 
     def test_reset_startup_timer(self):
-        ru._startup_start_time = 12345.0
+        _set_startup_start_time(12345.0)
         reset_startup_timer()
-        assert ru._startup_start_time is None
+        assert _get_startup_start_time() is None
 
 
 class TestShouldAttemptRecovery:
@@ -122,28 +125,60 @@ class TestShouldAttemptRecovery:
         reset_fallback_state()
 
     def test_returns_false_when_not_in_fallback(self):
-        ru._fallback_state.active = False
+        _fs().active = False
         assert not should_attempt_recovery()
 
     def test_returns_false_when_insufficient_successes(self):
-        ru._fallback_state.active = True
-        ru._fallback_state.consecutive_successes = 1  # below RECOVERY_CHECK_INTERVAL (3)
-        ru._fallback_state.last_failure_time = time.time() - 9999  # cooldown passed
+        _fs().active = True
+        _fs().consecutive_successes = 1  # below RECOVERY_CHECK_INTERVAL (3)
+        _fs().last_failure_time = time.time() - 9999  # cooldown passed
         assert not should_attempt_recovery()
 
     def test_returns_false_when_cooldown_not_elapsed(self):
         from src.config import RECOVERY_CHECK_INTERVAL, RECOVERY_COOLDOWN
-        ru._fallback_state.active = True
-        ru._fallback_state.consecutive_successes = RECOVERY_CHECK_INTERVAL
-        ru._fallback_state.last_failure_time = time.time()  # just now
+        _fs().active = True
+        _fs().consecutive_successes = RECOVERY_CHECK_INTERVAL
+        _fs().last_failure_time = time.time()  # just now
         assert not should_attempt_recovery()
 
     def test_returns_true_when_ready(self):
         from src.config import RECOVERY_CHECK_INTERVAL
-        ru._fallback_state.active = True
-        ru._fallback_state.consecutive_successes = RECOVERY_CHECK_INTERVAL
-        ru._fallback_state.last_failure_time = time.time() - 9999  # well past cooldown
+        _fs().active = True
+        _fs().consecutive_successes = RECOVERY_CHECK_INTERVAL
+        _fs().last_failure_time = time.time() - 9999  # well past cooldown
         assert should_attempt_recovery()
+
+
+class TestFallbackStateThreadLocal:
+    """Verify that fallback state is isolated per thread."""
+
+    def test_fallback_state_is_thread_local(self):
+        import threading
+
+        reset_fallback_state()
+
+        # Thread A activates fallback; thread B should see its own fresh state.
+        barrier = threading.Barrier(2)
+        thread_b_saw_active = [None]
+
+        def thread_a():
+            _fs().active = True
+            barrier.wait()  # sync: both threads sample after A has set its flag
+
+        def thread_b():
+            barrier.wait()
+            thread_b_saw_active[0] = _fs().active
+
+        ta = threading.Thread(target=thread_a)
+        tb = threading.Thread(target=thread_b)
+        ta.start()
+        tb.start()
+        ta.join()
+        tb.join()
+
+        assert thread_b_saw_active[0] is False, (
+            "Thread B should have its own fresh FallbackState, not thread A's"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -276,8 +311,8 @@ class TestExecuteWithRetry:
 
     def test_startup_timeout_raises_before_retry(self, monkeypatch):
         """StartupTimeoutError is raised if total budget exceeded."""
-        # Set startup timer to far in the past
-        ru._startup_start_time = time.time() - 99999
+        # Set startup timer to far in the past (for this thread)
+        _set_startup_start_time(time.time() - 99999)
 
         with pytest.raises(StartupTimeoutError):
             execute_with_retry(
@@ -350,9 +385,9 @@ class TestGetFallbackStats:
         assert stats["primary_model"] is None
 
     def test_reflects_fallback_activation(self):
-        ru._fallback_state.active = True
-        ru._fallback_state.primary_model = "openai/primary"
-        ru._fallback_state.fallback_count = 2
+        _fs().active = True
+        _fs().primary_model = "openai/primary"
+        _fs().fallback_count = 2
         stats = get_fallback_stats()
         assert stats["fallback_active"] is True
         assert stats["primary_model"] == "openai/primary"

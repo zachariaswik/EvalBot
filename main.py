@@ -1455,6 +1455,17 @@ def main() -> None:
 
     args = sys.argv[1:]
 
+    # Extract optional --workers N (max concurrent startups)
+    workers: int | None = None
+    if "--workers" in args:
+        w_idx = args.index("--workers")
+        try:
+            workers = int(args[w_idx + 1])
+        except (IndexError, ValueError):
+            print("--workers requires an integer argument (e.g. --workers 2)")
+            sys.exit(1)
+        args = args[:w_idx] + args[w_idx + 2:]
+
     # Extract optional --only filter (list of startup names to include)
     only_names: set[str] | None = None
     if "--only" in args:
@@ -1568,7 +1579,7 @@ def main() -> None:
         import json as _json
         print(f"PROGRESS:BATCH_START:{_json.dumps({'total': len(submissions), 'names': list(submissions.keys())})}", flush=True)
         batch_id = _next_batch_id()
-        result = run_batch(submissions, batch_id=batch_id)
+        result = run_batch(submissions, batch_id=batch_id, workers=workers)
 
         print("\n\nINDIVIDUAL RESULTS")
         print("=" * 60)

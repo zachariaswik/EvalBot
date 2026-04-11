@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass
 from threading import Thread
@@ -57,37 +58,47 @@ class FallbackState:
     consecutive_successes: int = 0
 
 
-# Global fallback state (persists across agent executions in a batch)
-_fallback_state = FallbackState()
+# Thread-local storage: each worker thread gets its own FallbackState and startup timer.
+_tls = threading.local()
 
-# Global startup timer - records when the first agent started for this startup
-_startup_start_time: float | None = None
+
+def _fs() -> FallbackState:
+    """Return this thread's FallbackState, creating one if needed."""
+    if not hasattr(_tls, "fallback_state"):
+        _tls.fallback_state = FallbackState()
+    return _tls.fallback_state
+
+
+def _get_startup_start_time() -> float | None:
+    return getattr(_tls, "startup_start_time", None)
+
+
+def _set_startup_start_time(t: float | None) -> None:
+    _tls.startup_start_time = t
 
 
 def reset_fallback_state() -> None:
-    """Reset fallback state (call at start of new batch)."""
-    global _fallback_state, _startup_start_time
-    _fallback_state = FallbackState()
-    _startup_start_time = None
+    """Reset fallback state for the calling thread (call at start of new batch or startup)."""
+    _tls.fallback_state = FallbackState()
+    _tls.startup_start_time = None
 
 
 def reset_startup_timer() -> None:
-    """Reset the per-startup timer (call before each startup)."""
-    global _startup_start_time
-    _startup_start_time = None
+    """Reset the per-startup timer for the calling thread (call before each startup)."""
+    _set_startup_start_time(None)
 
 
 def should_attempt_recovery() -> bool:
     """Check if we should try switching back to primary model."""
-    if not _fallback_state.active:
+    if not _fs().active:
         return False
 
     # Need enough consecutive successes
-    if _fallback_state.consecutive_successes < RECOVERY_CHECK_INTERVAL:
+    if _fs().consecutive_successes < RECOVERY_CHECK_INTERVAL:
         return False
 
     # Need to wait for cooldown period
-    elapsed = time.time() - _fallback_state.last_failure_time
+    elapsed = time.time() - _fs().last_failure_time
     return elapsed >= RECOVERY_COOLDOWN
 
 
@@ -190,11 +201,9 @@ def execute_with_retry(
         Last exception if all retries and fallback fail
         StartupTimeoutError: If total startup time exceeds TOTAL_STARTUP_TIMEOUT
     """
-    global _fallback_state, _startup_start_time
-
-    # Record start time on first call for this startup
-    if _startup_start_time is None:
-        _startup_start_time = time.time()
+    # Record start time on first call for this startup (per-thread)
+    if _get_startup_start_time() is None:
+        _set_startup_start_time(time.time())
 
     # Get the appropriate fallback model for this agent
     fallback_model = get_fallback_model_for_agent(agent_number)
@@ -207,11 +216,11 @@ def execute_with_retry(
 
     # Determine which model to use
     if should_attempt_recovery():
-        attempt_model = _fallback_state.primary_model
+        attempt_model = _fs().primary_model
         recovery_attempt = True
         if not silent:
             print(f"    ↻ Attempting recovery to primary model...")
-    elif _fallback_state.active:
+    elif _fs().active:
         attempt_model = fallback_model
         recovery_attempt = False
     else:
@@ -221,7 +230,7 @@ def execute_with_retry(
     last_error = None
 
     # Check if we've already exceeded total startup timeout before even trying
-    elapsed = time.time() - _startup_start_time
+    elapsed = time.time() - _get_startup_start_time()
     if elapsed >= TOTAL_STARTUP_TIMEOUT:
         raise StartupTimeoutError(elapsed, TOTAL_STARTUP_TIMEOUT)
 
@@ -237,11 +246,11 @@ def execute_with_retry(
             if recovery_attempt:
                 if not silent:
                     print(f"    ✓ Recovered to primary model")
-                _fallback_state.active = False
-                _fallback_state.consecutive_successes = 0
+                _fs().active = False
+                _fs().consecutive_successes = 0
                 recovery_occurred = True
-            elif _fallback_state.active:
-                _fallback_state.consecutive_successes += 1
+            elif _fs().active:
+                _fs().consecutive_successes += 1
 
             return {
                 "result": result,
@@ -275,7 +284,7 @@ def execute_with_retry(
             retry_count += 1
 
             # Check total startup timeout before retrying
-            elapsed = time.time() - _startup_start_time
+            elapsed = time.time() - _get_startup_start_time()
             if elapsed >= TOTAL_STARTUP_TIMEOUT:
                 raise StartupTimeoutError(elapsed, TOTAL_STARTUP_TIMEOUT)
 
@@ -291,7 +300,7 @@ def execute_with_retry(
     # --- Phase 2: Fallback model ---
     if needs_fallback and fallback_model and not recovery_attempt and attempt_model != fallback_model:
         # Check total startup timeout before trying fallback
-        elapsed = time.time() - _startup_start_time
+        elapsed = time.time() - _get_startup_start_time()
         if elapsed >= TOTAL_STARTUP_TIMEOUT:
             raise StartupTimeoutError(elapsed, TOTAL_STARTUP_TIMEOUT)
 
@@ -299,13 +308,13 @@ def execute_with_retry(
             print(f"    ⚠ Switching to fallback model ({fallback_model})")
 
         # Activate fallback state
-        if not _fallback_state.active:
-            _fallback_state.active = True
-            _fallback_state.primary_model = model_name
-            _fallback_state.last_failure_time = time.time()
+        if not _fs().active:
+            _fs().active = True
+            _fs().primary_model = model_name
+            _fs().last_failure_time = time.time()
 
-        _fallback_state.fallback_count += 1
-        _fallback_state.consecutive_successes = 0
+        _fs().fallback_count += 1
+        _fs().consecutive_successes = 0
         fallback_occurred = True
 
         # Use fallback_func if provided (actually runs with the fallback model),
@@ -316,14 +325,14 @@ def execute_with_retry(
         for fallback_attempt in range(RETRY_ATTEMPTS):
             try:
                 # Check total startup timeout before each attempt
-                elapsed = time.time() - _startup_start_time
+                elapsed = time.time() - _get_startup_start_time()
                 if elapsed >= TOTAL_STARTUP_TIMEOUT:
                     raise StartupTimeoutError(elapsed, TOTAL_STARTUP_TIMEOUT)
 
                 result = _execute_with_timeout(fb_func, AGENT_TIMEOUT)
 
                 # Success on fallback
-                _fallback_state.consecutive_successes += 1
+                _fs().consecutive_successes += 1
 
                 return {
                     "result": result,
@@ -342,7 +351,7 @@ def execute_with_retry(
                     raise
 
                 # Check total startup timeout before retrying fallback
-                elapsed = time.time() - _startup_start_time
+                elapsed = time.time() - _get_startup_start_time()
                 if elapsed >= TOTAL_STARTUP_TIMEOUT:
                     raise StartupTimeoutError(elapsed, TOTAL_STARTUP_TIMEOUT)
 
@@ -360,17 +369,17 @@ def execute_with_retry(
     if recovery_attempt:
         if not silent:
             print(f"    ✗ Recovery failed, continuing with fallback")
-        _fallback_state.consecutive_successes = 0
+        _fs().consecutive_successes = 0
 
     raise last_error
 
 
 def get_fallback_stats() -> dict[str, Any]:
-    """Get current fallback state statistics."""
+    """Get current fallback state statistics for the calling thread."""
     return {
-        "fallback_active": _fallback_state.active,
-        "primary_model": _fallback_state.primary_model,
-        "fallback_count": _fallback_state.fallback_count,
-        "consecutive_successes": _fallback_state.consecutive_successes,
-        "seconds_since_failure": int(time.time() - _fallback_state.last_failure_time) if _fallback_state.last_failure_time > 0 else 0,
+        "fallback_active": _fs().active,
+        "primary_model": _fs().primary_model,
+        "fallback_count": _fs().fallback_count,
+        "consecutive_successes": _fs().consecutive_successes,
+        "seconds_since_failure": int(time.time() - _fs().last_failure_time) if _fs().last_failure_time > 0 else 0,
     }

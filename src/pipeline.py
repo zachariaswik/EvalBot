@@ -57,10 +57,14 @@ _AGENT_ROLES = {
     7: "Ranking Committee Agent",
 }
 
+# Lock to prevent interleaved stdout from parallel startup threads
+_stdout_lock = threading.Lock()
+
 
 def _progress(event: str, **kwargs: Any) -> None:
     """Emit a structured progress line for the web UI to parse."""
-    print(f"PROGRESS:{event}:{json.dumps(kwargs)}", flush=True)
+    with _stdout_lock:
+        print(f"PROGRESS:{event}:{json.dumps(kwargs)}", flush=True)
 from .retry_utils import execute_with_retry, get_fallback_stats, reset_fallback_state, reset_startup_timer, StartupTimeoutError
 from .tasks import create_ranking_task, create_task
 
@@ -901,66 +905,76 @@ def _show_live_counter_agent7(model_name: str, stop_event: threading.Event) -> N
     print("\r" + " " * previous_len + "\r", end="", flush=True)
 
 
-def run_batch(
-    submissions: dict[str, str],
-    batch_id: str,
-) -> dict:
-    """Run agents 1-6 for each startup, then Agent 7 ranking."""
-    bid = batch_id
-    
-    # Reset fallback state for new batch
+def _run_one(
+    idx: int,
+    name: str,
+    text: str,
+    bid: str,
+    n_total: int,
+) -> tuple[str, dict, Exception | None]:
+    """Run a single startup through agents 1-6. Returns (name, result, error_or_None)."""
+    # Each worker thread gets fresh per-startup state
     reset_fallback_state()
-
-    # Run agents 1-6 for each startup
-    all_results: dict[str, dict] = {}
-    failed_startups: list[str] = []
-    n_total = len(submissions)
-    for idx, (name, text) in enumerate(submissions.items()):
+    reset_startup_timer()
+    wall_start = time.time()
+    with _stdout_lock:
         print(f"\n{'#'*60}")
         print(f"  Processing: {name}")
         print(f"{'#'*60}")
-        _progress("STARTUP_START", name=name, idx=idx + 1, total=n_total)
+    _progress("STARTUP_START", name=name, idx=idx + 1, total=n_total)
+    try:
+        result = run_single(name, text, batch_id=bid)
+        _progress("STARTUP_DONE", name=name, idx=idx + 1, total=n_total,
+                  elapsed_s=int(time.time() - wall_start))
+        return name, result, None
+    except StartupTimeoutError as e:
+        error_output = {
+            "error": "startup_timeout",
+            "message": e.message,
+            "elapsed_seconds": int(e.elapsed),
+            "limit_seconds": int(e.limit),
+        }
+        return name, error_output, e
 
-        # Reset per-startup timer so TOTAL_STARTUP_TIMEOUT is per-startup
-        reset_startup_timer()
-        startup_wall_start = time.time()
 
-        try:
-            result = run_single(name, text, batch_id=bid)
+def run_batch(
+    submissions: dict[str, str],
+    batch_id: str,
+    workers: int | None = None,
+) -> dict:
+    """Run agents 1-6 for each startup in parallel, then Agent 7 ranking.
+
+    Args:
+        submissions: Mapping of startup name → submission text.
+        batch_id: Batch identifier for DB records.
+        workers: Max concurrent startups. Default (None) = one thread per startup
+                 (all in parallel). Pass an integer to throttle concurrency.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    bid = batch_id
+
+    all_results: dict[str, dict] = {}
+    failed_startups: list[str] = []
+    n_total = len(submissions)
+    items = list(submissions.items())
+    # Default: one thread per startup (all in parallel); --workers throttles if needed
+    effective_workers = workers if workers is not None else n_total
+
+    with ThreadPoolExecutor(max_workers=effective_workers) as pool:
+        futures = {
+            pool.submit(_run_one, idx, name, text, bid, n_total): name
+            for idx, (name, text) in enumerate(items)
+        }
+        for future in as_completed(futures):
+            name, result, err = future.result()
             all_results[name] = result
-            _progress("STARTUP_DONE", name=name, idx=idx + 1, total=n_total,
-                      elapsed_s=int(time.time() - startup_wall_start))
-        except StartupTimeoutError as e:
-            # Startup exceeded total time budget — mark as failed and continue
-            print(f"\n  ⏰ STARTUP TIMEOUT: {e.message}")
-            print(f"  Marking as FAILED — re-run this startup later.")
-
-            # Store error state so the user knows which ones to re-run
-            error_output = {
-                "error": "startup_timeout",
-                "message": e.message,
-                "elapsed_seconds": int(e.elapsed),
-                "limit_seconds": int(e.limit),
-            }
-            all_results[name] = error_output
-            failed_startups.append(name)
-
-            # Mark as failed in DB (not "completed")
-            update_startup_status(bid, name, "failed")
-            continue
-        
-        # Show fallback stats after each startup
-        stats = get_fallback_stats()
-        if stats["fallback_active"]:
-            print(f"\n  📊 Fallback Mode Active")
-            print(f"     Primary: {stats['primary_model']} → Fallback: {FALLBACK_MODEL}")
-            print(f"     Fallback uses: {stats['fallback_count']} | Successes: {stats['consecutive_successes']}/{RECOVERY_CHECK_INTERVAL}")
-            if stats['seconds_since_failure'] >= RECOVERY_COOLDOWN:
-                print(f"     ✓ Ready for recovery attempt")
-            else:
-                remaining = RECOVERY_COOLDOWN - stats['seconds_since_failure']
-                print(f"     Cooldown: {remaining}s remaining")
-            print()
+            if err is not None:
+                failed_startups.append(name)
+                update_startup_status(bid, name, "failed")
+                with _stdout_lock:
+                    print(f"\n  ⏰ STARTUP TIMEOUT: {err.message}")
+                    print(f"  Marking {name} as FAILED — re-run this startup later.")
 
     # Run Agent 7 — ranking across the cohort
     print(f"\n{'#'*60}")
