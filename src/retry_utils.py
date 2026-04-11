@@ -276,9 +276,15 @@ def execute_with_retry(
                 needs_fallback = True
                 break
 
-            # Connection errors are retryable; anything else fails fast
+            # Connection errors are retryable with backoff.
+            # Non-connection errors (e.g. model-specific API quirks like MiniMax
+            # returning multiple tool calls) skip remaining retries and go
+            # straight to the fallback model, same as AgentTimeoutError.
             if not _is_connection_error(e):
-                raise
+                if not silent:
+                    print(f"    ⚠ Non-retryable error ({type(e).__name__}) — trying fallback model")
+                needs_fallback = True
+                break
 
             # Connection error — attempt retry with exponential backoff
             retry_count += 1

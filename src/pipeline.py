@@ -936,6 +936,17 @@ def _run_one(
         }
         _progress("STARTUP_TIMEOUT", name=name, elapsed_s=int(time.time() - wall_start))
         return name, error_output, e
+    except Exception as e:
+        # Catch-all: one startup failing must never crash the whole batch.
+        err_msg = str(e)[:300]
+        error_output = {
+            "error": "startup_failed",
+            "message": err_msg,
+        }
+        with _stdout_lock:
+            print(f"\n  ✗ STARTUP FAILED ({name}): {type(e).__name__}: {err_msg}")
+        _progress("STARTUP_TIMEOUT", name=name, elapsed_s=int(time.time() - wall_start))
+        return name, error_output, e
 
 
 def run_batch(
@@ -973,8 +984,9 @@ def run_batch(
             if err is not None:
                 failed_startups.append(name)
                 update_startup_status(bid, name, "failed")
+                err_msg = getattr(err, "message", str(err))[:200]
                 with _stdout_lock:
-                    print(f"\n  ⏰ STARTUP TIMEOUT: {err.message}")
+                    print(f"\n  ✗ {name}: {err_msg}")
                     print(f"  Marking {name} as FAILED — re-run this startup later.")
 
     # Run Agent 7 — ranking across the cohort

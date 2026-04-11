@@ -228,8 +228,9 @@ class TestExecuteWithRetry:
         assert result["intended_model"] == "openai/gpt-4o"
         assert result["actual_model"] == "openai/gpt-4o"
 
-    def test_non_connection_error_raises_immediately(self):
-        """Non-connection errors should not be retried."""
+    def test_non_connection_error_routes_to_fallback(self):
+        """Non-connection errors skip primary retries and go straight to fallback.
+        If no fallback_func is provided, func is reused; the error is still raised."""
         call_count = [0]
 
         def raises_value_error():
@@ -242,8 +243,8 @@ class TestExecuteWithRetry:
                 model_name="openai/gpt-4o",
                 agent_number=1,
             )
-        # Should fail fast, not retry
-        assert call_count[0] == 1
+        # 1 primary attempt (no retries) + 1 fallback attempt = 2 total calls
+        assert call_count[0] == 2
 
     def test_connection_error_retries_and_succeeds(self):
         call_count = [0]

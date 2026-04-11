@@ -11,8 +11,21 @@ Production:
 from pathlib import Path
 
 import reflex as rx
+from reflex.utils import console as _rx_console
 from starlette.requests import Request
 from starlette.responses import JSONResponse
+
+# Reflex warns every time a background task pushes a delta to a client that has
+# navigated away. The message is identical each time (same session token), so we
+# force deduplication: the user sees the warning once, then silence.
+_orig_rx_warn = _rx_console.warn
+
+def _deduping_warn(msg: str, *, dedupe: bool = False, **kwargs):
+    if "disconnected client" in msg:
+        dedupe = True
+    _orig_rx_warn(msg, dedupe=dedupe, **kwargs)
+
+_rx_console.warn = _deduping_warn
 
 from frontend.pages.dashboard import dashboard_page
 from frontend.pages.batch import batch_page

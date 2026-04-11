@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 import reflex as rx
@@ -344,8 +345,22 @@ class RunState(rx.State):
             if startup_names:
                 cmd += ["--only"] + startup_names
 
+            # Timestamped log file — written in real time, readable with `tail -f`
+            log_path = (
+                PROJECT_ROOT / "output"
+                / f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+            )
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            log_file = log_path.open("w", encoding="utf-8", buffering=1)  # line-buffered
+
+            cmd_line = f"$ {' '.join(cmd)}"
+            log_file.write(cmd_line + "\n")
+
             async with self:
-                self.log_lines = [f"$ {' '.join(cmd)}"]
+                self.log_lines = [
+                    f"Log: {log_path}",
+                    cmd_line,
+                ]
 
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -363,6 +378,10 @@ class RunState(rx.State):
                 """Update elapsed_s for every active startup once per second."""
                 while True:
                     await asyncio.sleep(1)
+                    # Skip the state lock entirely if nothing is active — avoids
+                    # generating a "disconnected client" warning on every tick.
+                    if not startup_start_times:
+                        continue
                     try:
                         loop = asyncio.get_event_loop()
                         async with self:
@@ -379,55 +398,65 @@ class RunState(rx.State):
 
             elapsed_task = asyncio.create_task(_tick_elapsed())
 
-            assert proc.stdout is not None
-            async for raw_line in proc.stdout:
-                line = _ANSI_RE.sub(
-                    "", raw_line.decode("utf-8", errors="replace")
-                ).rstrip()
-                if not line:
-                    continue
+            try:
+                assert proc.stdout is not None
+                async for raw_line in proc.stdout:
+                    line = _ANSI_RE.sub(
+                        "", raw_line.decode("utf-8", errors="replace")
+                    ).rstrip()
+                    if not line:
+                        continue
 
-                if line.startswith("PROGRESS:"):
-                    rest = line[len("PROGRESS:"):]
-                    colon = rest.find(":")
-                    if colon >= 0:
-                        event_type = rest[:colon]
+                    # Every line goes to the log file regardless of type
+                    log_file.write(line + "\n")
+
+                    if line.startswith("PROGRESS:"):
+                        rest = line[len("PROGRESS:"):]
+                        colon = rest.find(":")
+                        if colon >= 0:
+                            event_type = rest[:colon]
+                            try:
+                                data = json.loads(rest[colon + 1:])
+                            except Exception:
+                                data = {}
+                            try:
+                                await self._handle_progress(event_type, data, startup_start_times)
+                            except asyncio.CancelledError:
+                                raise
+                            except Exception:
+                                pass
+                    else:
                         try:
-                            data = json.loads(rest[colon + 1:])
-                        except Exception:
-                            data = {}
-                        try:
-                            await self._handle_progress(event_type, data, startup_start_times)
+                            async with self:
+                                self.log_lines = self.log_lines + [line]
                         except asyncio.CancelledError:
                             raise
                         except Exception:
                             pass
+
+                elapsed_task.cancel()
+                await proc.wait()
+
+                exit_note = f"[exit code {proc.returncode}]"
+                log_file.write(exit_note + "\n")
+
+                if proc.returncode == 0:
+                    run_batch_id = _latest_batch_id() or ""
+                    _write_run_state(job_id, "done", run_batch_id)
+                    async with self:
+                        self.status = "done"
+                        self.completed_batch_id = run_batch_id
+                        self.staged = []
                 else:
-                    try:
-                        async with self:
-                            self.log_lines = self.log_lines + [line]
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception:
-                        pass
-
-            elapsed_task.cancel()
-            await proc.wait()
-
-            if proc.returncode == 0:
-                run_batch_id = _latest_batch_id() or ""
-                _write_run_state(job_id, "done", run_batch_id)
-                async with self:
-                    self.status = "done"
-                    self.completed_batch_id = run_batch_id
-                    self.staged = []
-            else:
-                _write_run_state(job_id, "error")
-                async with self:
-                    self.status = "error"
-                    self.log_lines = self.log_lines + [
-                        f"Process exited with code {proc.returncode}"
-                    ]
+                    _write_run_state(job_id, "error")
+                    async with self:
+                        self.status = "error"
+                        self.log_lines = self.log_lines + [
+                            f"Process exited with code {proc.returncode}"
+                        ]
+            finally:
+                elapsed_task.cancel()
+                log_file.close()
 
         except asyncio.CancelledError:
             pass
