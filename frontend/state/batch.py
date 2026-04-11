@@ -10,6 +10,19 @@ import reflex as rx
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 OUTPUT_DIR = PROJECT_ROOT / "output" / "Batch"
 
+VERDICT_HEX: dict[str, str] = {
+    "Top VC Candidate": "#0a7c52",
+    "Promising, Needs Sharper Focus": "#1b48c4",
+    "Promising, But Needs Pivot": "#3b6fd4",
+    "Good Small Business, Not Venture-Scale": "#a85800",
+    "Feature, Not a Company": "#92400e",
+    "AI Wrapper With Weak Moat": "#92400e",
+    "Reject": "#b91c1c",
+}
+
+_POSITIVE_VERDICTS = {"Top VC Candidate", "Promising, Needs Sharper Focus", "Promising, But Needs Pivot"}
+_NEGATIVE_VERDICTS = {"Reject", "Feature, Not a Company", "AI Wrapper With Weak Moat"}
+
 
 def _db_path() -> Path | None:
     candidate = PROJECT_ROOT / "evalbot.db"
@@ -80,6 +93,9 @@ class BatchState(rx.State):
     shortlist: list[str] = []
     bar_chart_data: list[dict] = []
     pie_chart_data: list[dict] = []
+    verdict_distribution: list[dict] = []
+    batch_sentiment: str = ""
+    batch_sentiment_hex: str = "#7188a4"
     is_loading: bool = True
     not_found: bool = False
 
@@ -167,5 +183,34 @@ class BatchState(rx.State):
         self.pie_chart_data = [
             {"name": k, "value": v} for k, v in verdict_counts.items()
         ]
+
+        # Build verdict distribution (sorted by count desc, precomputed for UI)
+        n_total = len(startups)
+        sorted_v = sorted(verdict_counts.items(), key=lambda x: x[1], reverse=True)
+        dist = []
+        for vname, vcount in sorted_v:
+            hex_col = VERDICT_HEX.get(vname, "#7188a4")
+            pct = round(vcount / n_total * 100) if n_total > 0 else 0
+            dist.append({
+                "name": vname,
+                "count": vcount,
+                "pct_str": f"{pct}%",
+                "fill_width": f"{pct}%",
+                "hex": hex_col,
+            })
+        self.verdict_distribution = dist
+
+        # Compute batch sentiment
+        positive = sum(v for k, v in verdict_counts.items() if k in _POSITIVE_VERDICTS)
+        negative = sum(v for k, v in verdict_counts.items() if k in _NEGATIVE_VERDICTS)
+        if n_total > 0 and positive >= n_total * 0.5:
+            self.batch_sentiment = "Strong batch"
+            self.batch_sentiment_hex = "#0a7c52"
+        elif n_total > 0 and negative >= n_total * 0.5:
+            self.batch_sentiment = "Challenging batch"
+            self.batch_sentiment_hex = "#b91c1c"
+        else:
+            self.batch_sentiment = "Mixed signals"
+            self.batch_sentiment_hex = "#a85800"
 
         self.is_loading = False

@@ -11,6 +11,7 @@ from src.tasks import (
     _build_description,
     _extract_pdf_paths,
     _json_only_instruction,
+    _summarize_agent_output,
     create_ranking_task,
     create_task,
 )
@@ -208,3 +209,39 @@ class TestCreateRankingTask:
         agent = crewai.Agent(role="R", goal="G", backstory="")
         task = create_ranking_task(agent, [])
         assert task.output_pydantic is AGENT_OUTPUT_MODELS[7]
+
+    def test_ranking_task_uses_compact_summaries(self):
+        import crewai
+        agent = crewai.Agent(role="R", goal="G", backstory="")
+        long_text = "x" * 1000
+        batch_data = [
+            {
+                "startup_name": "CompactCo",
+                "outputs": {
+                    2: {
+                        "verdict": "Top VC Candidate",
+                        "total_score": 91,
+                        "summary": long_text,
+                        "main_risks": long_text,
+                    }
+                },
+            }
+        ]
+        task = create_ranking_task(agent, batch_data)
+        assert "--- Compact Evaluation Summary ---" in task.description
+        assert long_text not in task.description
+        assert "..." in task.description
+
+
+class TestSummarizeAgentOutput:
+    def test_agent2_summary_keeps_core_fields(self):
+        out = {
+            "verdict": "Top VC Candidate",
+            "total_score": 88,
+            "summary": "Strong founder-market fit and fast growth.",
+            "main_risks": ["Crowded market", "Regulatory uncertainty"],
+        }
+        summary = _summarize_agent_output(2, out)
+        assert summary["verdict"] == "Top VC Candidate"
+        assert summary["total_score"] == 88
+        assert "Strong founder-market fit" in summary["summary"]

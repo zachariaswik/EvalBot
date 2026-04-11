@@ -5,7 +5,7 @@ from __future__ import annotations
 import reflex as rx
 
 from frontend.components.badges import section_marker, verdict_badge, status_pill, score_bar
-from frontend.components.charts import bar_chart, pie_chart
+from frontend.components.charts import bar_chart
 from frontend.components.navbar import page_layout
 from frontend.state.batch import BatchState
 
@@ -109,6 +109,99 @@ def startup_score_row(s: dict, idx: int) -> rx.Component:
     )
 
 
+def verdict_row(item: dict) -> rx.Component:
+    """A single verdict breakdown row: colored accent | name + count | fill bar + pct."""
+    return rx.box(
+        rx.hstack(
+            # Colored left accent
+            rx.box(
+                style={
+                    "width": "3px",
+                    "minHeight": "44px",
+                    "borderRadius": "2px",
+                    "background": item["hex"],
+                    "flexShrink": "0",
+                    "alignSelf": "stretch",
+                }
+            ),
+            # Content: name + count on top, bar + pct below
+            rx.vstack(
+                rx.hstack(
+                    rx.text(
+                        item["name"],
+                        style={
+                            "fontSize": "12.5px",
+                            "fontWeight": "600",
+                            "color": TEXT,
+                            "flex": "1",
+                            "lineHeight": "1.35",
+                        },
+                    ),
+                    rx.text(
+                        item["count"],
+                        style={
+                            "fontFamily": "'Georgia', serif",
+                            "fontSize": "20px",
+                            "fontWeight": "900",
+                            "color": item["hex"],
+                            "lineHeight": "1",
+                            "minWidth": "20px",
+                            "textAlign": "right",
+                        },
+                    ),
+                    spacing="2",
+                    align="start",
+                    width="100%",
+                ),
+                rx.hstack(
+                    rx.box(
+                        rx.box(
+                            style={
+                                "height": "100%",
+                                "width": item["fill_width"],
+                                "background": item["hex"],
+                                "borderRadius": "2px",
+                                "opacity": "0.75",
+                                "transition": "width 0.9s cubic-bezier(0.16,1,0.3,1) 0.2s",
+                            }
+                        ),
+                        style={
+                            "flex": "1",
+                            "height": "4px",
+                            "background": SURFACE_3,
+                            "borderRadius": "2px",
+                            "overflow": "hidden",
+                        },
+                    ),
+                    rx.text(
+                        item["pct_str"],
+                        style={
+                            "fontSize": "11px",
+                            "color": TEXT_3,
+                            "minWidth": "32px",
+                            "textAlign": "right",
+                            "fontFamily": "'Courier New', monospace",
+                        },
+                    ),
+                    spacing="2",
+                    align="center",
+                    width="100%",
+                ),
+                spacing="1",
+                align="start",
+                flex="1",
+            ),
+            spacing="3",
+            align="start",
+            width="100%",
+        ),
+        style={
+            "padding": "10px 0",
+            "borderBottom": f"1px solid {SURFACE_2}",
+        },
+    )
+
+
 def batch_page() -> rx.Component:
     return page_layout(
         # Breadcrumb
@@ -170,8 +263,48 @@ def batch_page() -> rx.Component:
                 },
             ),
             rx.box(
-                section_marker("Verdict distribution"),
-                pie_chart(BatchState.pie_chart_data, height=200),
+                # Header: label + sentiment badge
+                rx.hstack(
+                    section_marker("Verdict breakdown"),
+                    rx.box(
+                        rx.text(
+                            BatchState.batch_sentiment,
+                            style={
+                                "fontSize": "10px",
+                                "fontWeight": "700",
+                                "color": BatchState.batch_sentiment_hex,
+                                "letterSpacing": "0.04em",
+                                "textTransform": "uppercase",
+                            },
+                        ),
+                        style={
+                            "padding": "3px 9px",
+                            "borderRadius": "20px",
+                            "background": SURFACE_2,
+                            "border": f"1px solid {BORDER}",
+                        },
+                    ),
+                    justify="between",
+                    align="center",
+                    width="100%",
+                    style={"marginBottom": "16px"},
+                ),
+                # Verdict rows
+                rx.foreach(
+                    BatchState.verdict_distribution,
+                    verdict_row,
+                ),
+                # Footer: unique verdict count
+                rx.text(
+                    BatchState.verdict_distribution.length().to(str) + " verdict types across "
+                    + BatchState.startup_count.to(str) + " startups",
+                    style={
+                        "fontSize": "11px",
+                        "color": TEXT_4,
+                        "marginTop": "12px",
+                        "fontFamily": "'Courier New', monospace",
+                    },
+                ),
                 style={
                     "background": SURFACE,
                     "border": f"1px solid {BORDER}",
