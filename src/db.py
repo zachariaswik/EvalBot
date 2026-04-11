@@ -35,20 +35,6 @@ CREATE TABLE IF NOT EXISTS agent_outputs (
     startup_name    TEXT NOT NULL,
     agent_number    INTEGER NOT NULL,
     output_json     TEXT NOT NULL,
-    iteration       INTEGER NOT NULL DEFAULT 1,
-    is_current      INTEGER NOT NULL DEFAULT 1,
-    feedback_reason TEXT,
-    created_at      TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS feedback_log (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    batch_id        TEXT NOT NULL,
-    startup_name    TEXT NOT NULL,
-    from_agent      INTEGER NOT NULL,
-    to_agent        INTEGER NOT NULL,
-    reason          TEXT,
-    iteration       INTEGER NOT NULL,
     created_at      TEXT NOT NULL
 );
 
@@ -162,39 +148,14 @@ def store_agent_output(
     startup_name: str,
     agent_number: int,
     output_json: str,
-    iteration: int,
-    feedback_reason: str | None = None,
     db_path: Path | None = None,
 ) -> None:
     conn = _connect(db_path)
-    # Mark previous outputs for this agent as not current
-    conn.execute(
-        "UPDATE agent_outputs SET is_current = 0 "
-        "WHERE batch_id = ? AND startup_name = ? AND agent_number = ?",
-        (batch_id, startup_name, agent_number),
-    )
     conn.execute(
         "INSERT INTO agent_outputs "
-        "(batch_id, startup_name, agent_number, output_json, iteration, is_current, feedback_reason, created_at) "
-        "VALUES (?, ?, ?, ?, ?, 1, ?, ?)",
-        (batch_id, startup_name, agent_number, output_json, iteration, feedback_reason, _now()),
-    )
-    conn.commit()
-    conn.close()
-
-
-def invalidate_outputs_from(
-    batch_id: str,
-    startup_name: str,
-    from_agent: int,
-    db_path: Path | None = None,
-) -> None:
-    """Mark all outputs from `from_agent` onward as not current."""
-    conn = _connect(db_path)
-    conn.execute(
-        "UPDATE agent_outputs SET is_current = 0 "
-        "WHERE batch_id = ? AND startup_name = ? AND agent_number >= ?",
-        (batch_id, startup_name, from_agent),
+        "(batch_id, startup_name, agent_number, output_json, created_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (batch_id, startup_name, agent_number, output_json, _now()),
     )
     conn.commit()
     conn.close()
@@ -205,27 +166,24 @@ def get_current_outputs(
     startup_name: str,
     db_path: Path | None = None,
 ) -> dict[int, dict]:
-    """Return {agent_number: parsed_json} for all current outputs.
-    
-    Falls back to non-current records if the current record has corrupted raw_output.
-    """
+    """Return {agent_number: parsed_json} for all stored outputs."""
     conn = _connect(db_path)
     rows = conn.execute(
-        "SELECT agent_number, output_json, is_current FROM agent_outputs "
+        "SELECT agent_number, output_json FROM agent_outputs "
         "WHERE batch_id = ? AND startup_name = ? "
-        "ORDER BY is_current DESC, created_at DESC",
+        "ORDER BY created_at DESC",
         (batch_id, startup_name),
     ).fetchall()
     conn.close()
-    
+
     result: dict[int, dict] = {}
     for row in rows:
         agent_num = row["agent_number"]
         if agent_num in result:
-            continue  # Already have this agent, prefer current
-        
+            continue  # Already have this agent (latest wins)
+
         top_level_parsed = json.loads(row["output_json"])
-        
+
         # Check if we have raw_output that needs inner parsing
         if "raw_output" in top_level_parsed:
             raw = top_level_parsed["raw_output"]
@@ -234,21 +192,19 @@ def get_current_outputs(
                     result[agent_num] = json.loads(raw)
                     continue
                 except json.JSONDecodeError:
-                    # raw_output JSON is corrupted, skip this record
-                    # (will fall through to next record for same agent if exists)
                     continue
-        
+
         result[agent_num] = top_level_parsed
-    
+
     return result
 
 
 def get_all_batch_outputs(batch_id: str, db_path: Path | None = None) -> list[dict]:
-    """Return all current outputs for every startup in a batch (for Agent 7)."""
+    """Return all outputs for every startup in a batch (for Agent 7)."""
     conn = _connect(db_path)
     rows = conn.execute(
         "SELECT startup_name, agent_number, output_json FROM agent_outputs "
-        "WHERE batch_id = ? AND is_current = 1 ORDER BY startup_name, agent_number",
+        "WHERE batch_id = ? ORDER BY startup_name, agent_number, created_at DESC",
         (batch_id,),
     ).fetchall()
     conn.close()
@@ -256,7 +212,11 @@ def get_all_batch_outputs(batch_id: str, db_path: Path | None = None) -> list[di
     results: dict[str, dict[int, dict]] = {}
     for row in rows:
         name = row["startup_name"]
-        results.setdefault(name, {})[row["agent_number"]] = json.loads(row["output_json"])
+        agent_num = row["agent_number"]
+        if name not in results:
+            results[name] = {}
+        if agent_num not in results[name]:  # latest wins (ORDER BY created_at DESC)
+            results[name][agent_num] = json.loads(row["output_json"])
     return [{"startup_name": name, "outputs": outputs} for name, outputs in results.items()]
 
 
@@ -460,26 +420,6 @@ def get_hall_of_fame_stats(db_path: Path | None = None) -> dict:
         "min_score": stats["min_score"] if stats["min_score"] else 0,
         "max_score": stats["max_score"] if stats["max_score"] else 0,
     }
-
-
-def log_feedback(
-    batch_id: str,
-    startup_name: str,
-    from_agent: int,
-    to_agent: int,
-    reason: str,
-    iteration: int,
-    db_path: Path | None = None,
-) -> None:
-    conn = _connect(db_path)
-    conn.execute(
-        "INSERT INTO feedback_log "
-        "(batch_id, startup_name, from_agent, to_agent, reason, iteration, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (batch_id, startup_name, from_agent, to_agent, reason, iteration, _now()),
-    )
-    conn.commit()
-    conn.close()
 
 
 # ---------------------------------------------------------------------------

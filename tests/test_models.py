@@ -15,7 +15,6 @@ from src.models import (
     Agent6Output,
     Agent7Output,
     CategorizedStartup,
-    FeedbackMixin,
     MarketSizeClass,
     RankedStartup,
     Recommendation,
@@ -24,26 +23,6 @@ from src.models import (
     Verdict,
     WrapperRisk,
 )
-
-
-# ---------------------------------------------------------------------------
-# FeedbackMixin
-# ---------------------------------------------------------------------------
-
-class TestFeedbackMixin:
-    def test_defaults_to_none(self):
-        class M(FeedbackMixin):
-            pass
-        m = M()
-        assert m.rerun_from_agent is None
-        assert m.rerun_reason is None
-
-    def test_accepts_valid_agent_number(self):
-        class M(FeedbackMixin):
-            pass
-        m = M(rerun_from_agent=3, rerun_reason="Not enough data")
-        assert m.rerun_from_agent == 3
-        assert m.rerun_reason == "Not enough data"
 
 
 # ---------------------------------------------------------------------------
@@ -59,7 +38,6 @@ class TestAgent1Output:
         assert out.clarity_score == 5
         assert out.missing_info == []
         assert out.inconsistencies == []
-        assert out.rerun_from_agent is None
 
     def test_clarity_score_valid_bounds(self):
         out = Agent1Output(clarity_score=1)

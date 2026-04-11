@@ -21,7 +21,6 @@ from .config import (
     CRITICAL_FIELDS,
     FALLBACK_MODEL,
     LLM_TIMEOUT,
-    MAX_ITERATIONS,
     QUALITY_GATE_THRESHOLD,
     RECOVERY_CHECK_INTERVAL,
     RECOVERY_COOLDOWN,
@@ -34,14 +33,12 @@ from .db import (
     create_batch,
     get_all_batch_outputs,
     init_db,
-    invalidate_outputs_from,
-    log_feedback,
     log_retry_event,
     store_agent_output,
     update_startup_status,
     upsert_startup,
 )
-from .models import AGENT_OUTPUT_MODELS, FeedbackMixin
+from .models import AGENT_OUTPUT_MODELS
 
 # ---------------------------------------------------------------------------
 # Progress signalling (parsed by the web UI log stream)
@@ -135,24 +132,6 @@ def _parse_output_to_dict(output_model: Any, raw: str) -> dict[str, Any] | None:
             args = [a for a in get_args(annotation) if a is not type(None)]
             return args[0] if len(args) == 1 else annotation
 
-        def _coerce_rerun_agent(value: Any) -> Any:
-            if value is None:
-                return None
-            if isinstance(value, bool):
-                return None if value is False else 1
-            if isinstance(value, int):
-                return value
-            if isinstance(value, str):
-                s = value.strip().lower()
-                if s in {"", "none", "null", "n/a", "na", "false", "no"}:
-                    return None
-                if s.isdigit():
-                    return int(s)
-                match = re.search(r"agent\s*[_-]?(\d+)", s)
-                if match:
-                    return int(match.group(1))
-            return value
-
         def _coerce_int(value: Any) -> Any:
             if isinstance(value, bool):
                 return int(value)
@@ -183,10 +162,6 @@ def _parse_output_to_dict(output_model: Any, raw: str) -> dict[str, Any] | None:
             ann = _unwrap_optional(field_info.annotation)
             ann_origin = get_origin(ann)
             is_list_field = ann_origin is list
-
-            if field_name == "rerun_from_agent":
-                normalized[field_name] = _coerce_rerun_agent(value)
-                continue
 
             if isinstance(ann, type) and issubclass(ann, Enum) and isinstance(value, str):
                 raw_val = value.strip()
@@ -522,15 +497,13 @@ class PipelineState:
     batch_id: str = ""
     startup_name: str = ""
     submission_text: str = ""
-    current_agent: int = 1
-    iteration: int = 0
     agent_outputs: dict[int, Any] = field(default_factory=dict)
     completed: bool = False
     pipeline_start_time: float = 0.0
 
 
 class StartupEvalPipeline:
-    """Run agents 1-6 sequentially with feedback-loop support."""
+    """Run agents 1-6 sequentially."""
 
     def __init__(self, batch_id: str):
         self.state = PipelineState(
@@ -565,7 +538,7 @@ class StartupEvalPipeline:
         print("\r" + " " * previous_len + "\r", end="", flush=True)
 
     def kickoff(self) -> dict[int, Any]:
-        """Core while-loop running agents 1-6 with feedback jumps."""
+        """Run agents 1-6 sequentially."""
         init_db()
         create_batch(self.state.batch_id)
         upsert_startup(
@@ -575,43 +548,31 @@ class StartupEvalPipeline:
         )
         update_startup_status(self.state.batch_id, self.state.startup_name, "in_progress")
 
-        # Track feedback reason and rerun flag
-        pending_feedback_reason: str | None = None
-        pending_is_rerun: bool = False
         self.state.pipeline_start_time = time.time()
         start_time = datetime.now()
         agent_timings: dict[int, float] = {}  # Track per-agent execution time
         agent_usage: dict[int, dict] = {}  # Track per-agent token usage
 
-        while self.state.current_agent <= 6 and self.state.iteration < MAX_ITERATIONS:
-            self.state.iteration += 1
-            agent_num = self.state.current_agent
-            is_rerun = pending_is_rerun
-            model_name = get_model_for_agent(agent_num, is_rerun=is_rerun)
+        for agent_num in range(1, 7):
+            model_name = get_model_for_agent(agent_num)
             elapsed = datetime.now() - start_time
             elapsed_str = f"{elapsed.seconds // 60}m {elapsed.seconds % 60}s"
-            completed = len([k for k in self.state.agent_outputs.keys() if k < agent_num])
+            completed = agent_num - 1
             print(f"\n{'='*60}")
-            print(f"  [Progress {completed}/6] Agent {agent_num}/6 | Iteration {self.state.iteration}"
-                  f" | Elapsed: {elapsed_str}")
-            print(f"  Model: {model_name}{' (re-run)' if is_rerun else ''}")
+            print(f"  [Progress {completed}/6] Agent {agent_num}/6 | Elapsed: {elapsed_str}")
+            print(f"  Model: {model_name}")
             print(f"{'='*60}\n")
-
-            feedback_reason = pending_feedback_reason
-            pending_feedback_reason = None
-            pending_is_rerun = False
 
             # Build prior context from stored outputs
             prior_context = dict(self.state.agent_outputs)
 
-            # Create agent and task — is_rerun may select a different model
-            agent = create_agent(agent_num, is_rerun=is_rerun)
+            # Create agent and task
+            agent = create_agent(agent_num)
             task = create_task(
                 agent_number=agent_num,
                 agent=agent,
                 submission_text=self.state.submission_text,
                 prior_context=prior_context if agent_num > 1 else None,
-                feedback_reason=feedback_reason,
             )
 
             if not _supports_structured_output(model_name):
@@ -627,13 +588,12 @@ class StartupEvalPipeline:
             # Build fallback crew (different model) for timeout / connection-error fallback
             fb_model_name = get_fallback_model_for_agent(agent_num)
             if fb_model_name != model_name:
-                fb_agent = create_agent(agent_num, llm=LLM(model=fb_model_name, timeout=LLM_TIMEOUT), is_rerun=is_rerun)
+                fb_agent = create_agent(agent_num, llm=LLM(model=fb_model_name, timeout=LLM_TIMEOUT))
                 fb_task = create_task(
                     agent_number=agent_num,
                     agent=fb_agent,
                     submission_text=self.state.submission_text,
                     prior_context=prior_context if agent_num > 1 else None,
-                    feedback_reason=feedback_reason,
                 )
                 if not _supports_structured_output(fb_model_name):
                     fb_task = Task(
@@ -770,7 +730,6 @@ class StartupEvalPipeline:
                 startup_name=self.state.startup_name,
                 agent_number=agent_num,
                 output_json=json.dumps(output_dict, default=str),
-                iteration=self.state.iteration,
             )
 
             # --- Post-agent checks ---
@@ -804,43 +763,7 @@ class StartupEvalPipeline:
                         print(f"     - {sig}")
                     print(f"  {'!'*50}\n")
 
-            # Check for feedback loop (agents 2-6 only)
-            if pydantic_output and isinstance(pydantic_output, FeedbackMixin):
-                rerun_from = pydantic_output.rerun_from_agent
-                rerun_reason = pydantic_output.rerun_reason
-                if rerun_from is not None and 1 <= rerun_from < agent_num:
-                    print(f"\n  FEEDBACK LOOP: Agent {agent_num} requests re-run from Agent {rerun_from}")
-                    print(f"  Reason: {rerun_reason}\n")
-
-                    log_feedback(
-                        batch_id=self.state.batch_id,
-                        startup_name=self.state.startup_name,
-                        from_agent=agent_num,
-                        to_agent=rerun_from,
-                        reason=rerun_reason or "",
-                        iteration=self.state.iteration,
-                    )
-
-                    # Invalidate outputs from the target agent onward
-                    invalidate_outputs_from(
-                        self.state.batch_id,
-                        self.state.startup_name,
-                        rerun_from,
-                    )
-                    # Clear in-memory outputs from target onward
-                    for k in list(self.state.agent_outputs.keys()):
-                        if k >= rerun_from:
-                            del self.state.agent_outputs[k]
-
-                    # Jump back with feedback context
-                    self.state.current_agent = rerun_from
-                    pending_feedback_reason = rerun_reason
-                    pending_is_rerun = True
-                    continue
-
-            # Advance to next agent
             print(f"  Agent {agent_num} completed successfully.")
-            self.state.current_agent = agent_num + 1
 
         # Compute automatic tags from all agent outputs
         tags = _compute_tags(self.state.agent_outputs)
@@ -855,7 +778,7 @@ class StartupEvalPipeline:
         elapsed_str = f"{elapsed.seconds // 60}m {elapsed.seconds % 60}s"
         print(f"\n{'='*60}")
         print(f"  ✓ Pipeline completed for: {self.state.startup_name}")
-        print(f"  Total iterations: {self.state.iteration} | Total elapsed: {elapsed_str}")
+        print(f"  Total elapsed: {elapsed_str}")
         print(f"{'='*60}")
         
         # Display per-agent timings summary
@@ -1081,7 +1004,6 @@ def run_batch(
         startup_name="__cohort__",
         agent_number=7,
         output_json=json.dumps(ranking_output, default=str),
-        iteration=1,
     )
 
     # Print summary of failed startups so the user knows what to re-run

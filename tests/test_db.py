@@ -18,8 +18,6 @@ from src.db import (
     get_top_ideas,
     init_db,
     insert_to_hall_of_fame,
-    invalidate_outputs_from,
-    log_feedback,
     log_retry_event,
     store_agent_output,
     update_startup_status,
@@ -39,7 +37,7 @@ class TestInitDb:
         ).fetchall()
         conn.close()
         tables = {row[0] for row in rows}
-        assert {"batches", "startups", "agent_outputs", "feedback_log",
+        assert {"batches", "startups", "agent_outputs",
                 "hall_of_fame", "retry_log"}.issubset(tables)
 
     def test_idempotent(self, tmp_path):
@@ -154,39 +152,22 @@ class TestStoreAndRetrieveAgentOutput:
     def test_basic_store_and_retrieve(self, tmp_db):
         create_batch("b1", "", tmp_db)
         data = {"startup_name": "Acme", "problem": "Big pain"}
-        store_agent_output("b1", "Acme", 1, json.dumps(data), 1, db_path=tmp_db)
+        store_agent_output("b1", "Acme", 1, json.dumps(data), db_path=tmp_db)
         outputs = get_current_outputs("b1", "Acme", tmp_db)
         assert 1 in outputs
         assert outputs[1]["problem"] == "Big pain"
 
-    def test_latest_iteration_is_current(self, tmp_db):
+    def test_latest_stored_output_is_returned(self, tmp_db):
         create_batch("b1", "", tmp_db)
-        store_agent_output("b1", "S1", 1, json.dumps({"v": 1}), 1, db_path=tmp_db)
-        store_agent_output("b1", "S1", 1, json.dumps({"v": 2}), 2, db_path=tmp_db)
+        store_agent_output("b1", "S1", 1, json.dumps({"v": 1}), db_path=tmp_db)
+        store_agent_output("b1", "S1", 1, json.dumps({"v": 2}), db_path=tmp_db)
         outputs = get_current_outputs("b1", "S1", tmp_db)
         assert outputs[1]["v"] == 2
-
-    def test_previous_iteration_marked_not_current(self, tmp_db):
-        create_batch("b1", "", tmp_db)
-        store_agent_output("b1", "S1", 2, json.dumps({"iter": 1}), 1, db_path=tmp_db)
-        store_agent_output("b1", "S1", 2, json.dumps({"iter": 2}), 2, db_path=tmp_db)
-        conn = sqlite3.connect(str(tmp_db))
-        rows = conn.execute(
-            "SELECT iteration, is_current FROM agent_outputs "
-            "WHERE batch_id='b1' AND startup_name='S1' AND agent_number=2"
-        ).fetchall()
-        conn.close()
-        current = [r for r in rows if r[1] == 1]
-        not_current = [r for r in rows if r[1] == 0]
-        assert len(current) == 1
-        assert current[0][0] == 2  # iteration 2 is current
-        assert len(not_current) == 1
-        assert not_current[0][0] == 1  # iteration 1 is archived
 
     def test_multiple_agents(self, tmp_db):
         create_batch("b1", "", tmp_db)
         for agent in range(1, 4):
-            store_agent_output("b1", "S1", agent, json.dumps({"agent": agent}), 1, db_path=tmp_db)
+            store_agent_output("b1", "S1", agent, json.dumps({"agent": agent}), db_path=tmp_db)
         outputs = get_current_outputs("b1", "S1", tmp_db)
         assert set(outputs.keys()) == {1, 2, 3}
 
@@ -194,51 +175,6 @@ class TestStoreAndRetrieveAgentOutput:
         create_batch("b1", "", tmp_db)
         outputs = get_current_outputs("b1", "NoSuchStartup", tmp_db)
         assert outputs == {}
-
-    def test_feedback_reason_stored(self, tmp_db):
-        create_batch("b1", "", tmp_db)
-        store_agent_output("b1", "S1", 1, json.dumps({}), 2,
-                           feedback_reason="Agent 3 requested re-run", db_path=tmp_db)
-        conn = sqlite3.connect(str(tmp_db))
-        row = conn.execute(
-            "SELECT feedback_reason FROM agent_outputs WHERE batch_id='b1'"
-        ).fetchone()
-        conn.close()
-        assert row[0] == "Agent 3 requested re-run"
-
-
-class TestInvalidateOutputsFrom:
-    def test_invalidates_agents_from_number_onwards(self, tmp_db):
-        create_batch("b1", "", tmp_db)
-        for agent in range(1, 6):
-            store_agent_output("b1", "S1", agent, json.dumps({"a": agent}), 1, db_path=tmp_db)
-
-        invalidate_outputs_from("b1", "S1", 3, tmp_db)
-
-        conn = sqlite3.connect(str(tmp_db))
-        rows = conn.execute(
-            "SELECT agent_number, is_current FROM agent_outputs "
-            "WHERE batch_id='b1' AND startup_name='S1'"
-        ).fetchall()
-        conn.close()
-
-        current = {r[0] for r in rows if r[1] == 1}
-        not_current = {r[0] for r in rows if r[1] == 0}
-        assert {1, 2} == current
-        assert {3, 4, 5} == not_current
-
-    def test_does_not_affect_other_startups(self, tmp_db):
-        create_batch("b1", "", tmp_db)
-        store_agent_output("b1", "S1", 1, json.dumps({"a": 1}), 1, db_path=tmp_db)
-        store_agent_output("b1", "S2", 1, json.dumps({"a": 1}), 1, db_path=tmp_db)
-        invalidate_outputs_from("b1", "S1", 1, tmp_db)
-
-        conn = sqlite3.connect(str(tmp_db))
-        row = conn.execute(
-            "SELECT is_current FROM agent_outputs WHERE startup_name='S2'"
-        ).fetchone()
-        conn.close()
-        assert row[0] == 1  # S2 agent 1 still current
 
 
 # ---------------------------------------------------------------------------
@@ -249,15 +185,15 @@ class TestGetAllBatchOutputs:
     def test_returns_all_startups(self, tmp_db):
         create_batch("b1", "", tmp_db)
         for name in ("Alpha", "Beta", "Gamma"):
-            store_agent_output("b1", name, 1, json.dumps({"name": name}), 1, db_path=tmp_db)
+            store_agent_output("b1", name, 1, json.dumps({"name": name}), db_path=tmp_db)
         results = get_all_batch_outputs("b1", tmp_db)
         names = {r["startup_name"] for r in results}
         assert names == {"Alpha", "Beta", "Gamma"}
 
-    def test_returns_only_current_outputs(self, tmp_db):
+    def test_returns_latest_output_per_agent(self, tmp_db):
         create_batch("b1", "", tmp_db)
-        store_agent_output("b1", "S1", 1, json.dumps({"v": 1}), 1, db_path=tmp_db)
-        store_agent_output("b1", "S1", 1, json.dumps({"v": 2}), 2, db_path=tmp_db)  # overwrites
+        store_agent_output("b1", "S1", 1, json.dumps({"v": 1}), db_path=tmp_db)
+        store_agent_output("b1", "S1", 1, json.dumps({"v": 2}), db_path=tmp_db)
         results = get_all_batch_outputs("b1", tmp_db)
         assert len(results) == 1
         assert results[0]["outputs"][1]["v"] == 2
@@ -266,32 +202,6 @@ class TestGetAllBatchOutputs:
         create_batch("b1", "", tmp_db)
         results = get_all_batch_outputs("b1", tmp_db)
         assert results == []
-
-
-# ---------------------------------------------------------------------------
-# Feedback log
-# ---------------------------------------------------------------------------
-
-class TestLogFeedback:
-    def test_inserts_feedback_record(self, tmp_db):
-        create_batch("b1", "", tmp_db)
-        log_feedback("b1", "S1", 3, 1, "Insufficient market data", 2, tmp_db)
-        conn = sqlite3.connect(str(tmp_db))
-        row = conn.execute("SELECT * FROM feedback_log").fetchone()
-        conn.close()
-        assert row is not None
-
-    def test_fields_stored_correctly(self, tmp_db):
-        create_batch("b1", "", tmp_db)
-        log_feedback("b1", "Acme", 4, 2, "Need better team info", 3, tmp_db)
-        conn = sqlite3.connect(str(tmp_db))
-        conn.row_factory = sqlite3.Row
-        row = conn.execute("SELECT * FROM feedback_log").fetchone()
-        conn.close()
-        assert row["from_agent"] == 4
-        assert row["to_agent"] == 2
-        assert row["reason"] == "Need better team info"
-        assert row["iteration"] == 3
 
 
 # ---------------------------------------------------------------------------

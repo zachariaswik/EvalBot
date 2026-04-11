@@ -32,8 +32,6 @@ Return ONLY one valid JSON object with these exact top-level keys:
 - attractiveness_score
 - competition_score
 - conclusion
-- rerun_from_agent
-- rerun_reason
 
 Output rules:
 - Do not output markdown, headings, tables, bullet lists, code fences, or commentary.

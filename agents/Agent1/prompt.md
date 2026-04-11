@@ -60,11 +60,8 @@ Return ONLY one valid JSON object with these exact top-level keys:
 - missing_info
 - inconsistencies
 - clarity_score
-- rerun_from_agent
-- rerun_reason
 
 Output rules:
 - Do not output markdown, headings, tables, bullet lists, code fences, or commentary.
 - `clarity_score` must be an integer from 1 to 10.
 - `missing_info` and `inconsistencies` must be JSON arrays of strings.
-- `rerun_from_agent` and `rerun_reason` should usually be null for Agent 1.

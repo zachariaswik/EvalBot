@@ -111,11 +111,6 @@ class TestCreateAgent:
         agent = create_agent(1, llm=custom_llm)
         assert agent.llm is custom_llm
 
-    def test_is_rerun_flag_does_not_raise(self, tmp_agent_dir, monkeypatch):
-        monkeypatch.setattr(cfg, "AGENTS_DIR", tmp_agent_dir)
-        agent = create_agent(1, is_rerun=True)
-        assert agent is not None
-
     def test_non_ollama_model_not_passed_to_ensure_context(self, tmp_agent_dir, monkeypatch):
         """Non-Ollama models skip the ollama variant creation logic."""
         monkeypatch.setattr(cfg, "AGENTS_DIR", tmp_agent_dir)

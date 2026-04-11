@@ -93,53 +93,38 @@ class TestJsonOnlyInstruction:
 
 class TestBuildDescription:
     def test_agent1_contains_submission(self):
-        desc = _build_description(1, "My startup pitch", None, None)
+        desc = _build_description(1, "My startup pitch", None)
         assert "My startup pitch" in desc
 
     def test_agent1_no_prior_context(self):
-        desc = _build_description(1, "pitch text", None, None)
+        desc = _build_description(1, "pitch text", None)
         # Agent 1 doesn't mention prior outputs
         assert "PRIOR AGENT OUTPUTS" not in desc
 
     def test_agent2_includes_prior_context(self):
         prior = {1: {"startup_name": "Acme", "problem": "Waste"}}
-        desc = _build_description(2, "pitch", prior, None)
+        desc = _build_description(2, "pitch", prior)
         assert "Acme" in desc
         assert "Agent 1" in desc
 
     def test_agent2_includes_submission(self):
         prior = {1: {"startup_name": "Acme"}}
-        desc = _build_description(2, "original pitch text", prior, None)
+        desc = _build_description(2, "original pitch text", prior)
         assert "original pitch text" in desc
 
-    def test_feedback_reason_included(self):
-        desc = _build_description(3, "pitch", {1: {}}, "Needs more market detail")
-        assert "Needs more market detail" in desc
-        assert "RE-RUN" in desc
-
-    def test_no_feedback_reason_no_rerun_label(self):
-        desc = _build_description(1, "pitch", None, None)
+    def test_no_rerun_label(self):
+        desc = _build_description(1, "pitch", None)
         assert "RE-RUN" not in desc
 
-    def test_agents_2_to_6_include_feedback_loop_instruction(self):
-        for agent_num in range(2, 7):
+    def test_no_feedback_loop_instruction(self):
+        for agent_num in range(1, 8):
             prior = {i: {} for i in range(1, agent_num)}
-            desc = _build_description(agent_num, "pitch", prior, None)
-            assert "FEEDBACK LOOP INSTRUCTION" in desc
-
-    def test_agent1_no_feedback_instruction(self):
-        desc = _build_description(1, "pitch", None, None)
-        assert "FEEDBACK LOOP INSTRUCTION" not in desc
-
-    def test_agent7_no_feedback_instruction(self):
-        # Agent 7 is not in the feedback loop (2-6 only)
-        prior = {i: {} for i in range(1, 7)}
-        desc = _build_description(7, "pitch", prior, None)
-        assert "FEEDBACK LOOP INSTRUCTION" not in desc
+            desc = _build_description(agent_num, "pitch", prior)
+            assert "FEEDBACK LOOP INSTRUCTION" not in desc
 
     def test_prior_context_sorted_by_agent_number(self):
         prior = {3: {"c": 3}, 1: {"a": 1}, 2: {"b": 2}}
-        desc = _build_description(4, "pitch", prior, None)
+        desc = _build_description(4, "pitch", prior)
         # Agent 1 should appear before Agent 3
         assert desc.index("Agent 1") < desc.index("Agent 3")
 

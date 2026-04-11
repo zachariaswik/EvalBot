@@ -61,14 +61,14 @@ def _seed_db(db_path: Path) -> None:
         },
         "explanation": "Great fundamentals.",
     }
-    store_agent_output("batch_1", "TestCo", 2, json.dumps(a2_output), 1, db_path=db_path)
+    store_agent_output("batch_1", "TestCo", 2, json.dumps(a2_output), db_path=db_path)
 
     a1_output = {
         "startup_name": "TestCo",
         "one_line_description": "AI for everything",
         "problem": "Big problem",
     }
-    store_agent_output("batch_1", "TestCo", 1, json.dumps(a1_output), 1, db_path=db_path)
+    store_agent_output("batch_1", "TestCo", 1, json.dumps(a1_output), db_path=db_path)
 
 
 # ---------------------------------------------------------------------------

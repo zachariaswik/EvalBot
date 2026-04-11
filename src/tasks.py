@@ -25,18 +25,6 @@ _EXPECTED_OUTPUT: dict[int, str] = {
     7: "A cohort ranking in JSON matching the Agent7Output schema.",
 }
 
-_FEEDBACK_INSTRUCTION = (
-    "\n\n---\n"
-    "FEEDBACK LOOP INSTRUCTION:\n"
-    "If you believe an earlier agent's output is missing critical information, "
-    "contains errors, or is insufficient for your analysis, you may request a "
-    "re-run by setting `rerun_from_agent` to the agent number (1-{max_agent}) "
-    "and `rerun_reason` to a brief explanation. Only do this if the issue is "
-    "significant enough to affect your analysis quality. Otherwise leave these "
-    "fields as null."
-)
-
-
 def _json_only_instruction(agent_number: int) -> str:
     """Return a strict JSON-only output instruction tailored to the agent schema."""
     model = AGENT_OUTPUT_MODELS[agent_number]
@@ -69,17 +57,9 @@ def _build_description(
     agent_number: int,
     submission_text: str,
     prior_context: dict[int, Any] | None,
-    feedback_reason: str | None,
 ) -> str:
     """Build the task description for a given agent."""
     parts: list[str] = []
-
-    if feedback_reason:
-        parts.append(
-            f"NOTE: This is a RE-RUN triggered by a downstream agent.\n"
-            f"Reason for re-run: {feedback_reason}\n"
-            f"Please address this feedback in your analysis.\n"
-        )
 
     if agent_number == 1:
         parts.append("Analyze the following startup submission and produce a structured startup brief.\n")
@@ -97,10 +77,6 @@ def _build_description(
                     formatted = str(data)
                 parts.append(f"\n--- Agent {num} Output ---\n{formatted}\n")
 
-    # Add feedback instruction for agents 2-6
-    if 2 <= agent_number <= 6:
-        parts.append(_FEEDBACK_INSTRUCTION.format(max_agent=agent_number - 1))
-
     return "\n".join(parts)
 
 
@@ -109,14 +85,13 @@ def create_task(
     agent: Agent,
     submission_text: str,
     prior_context: dict[int, Any] | None = None,
-    feedback_reason: str | None = None,
 ) -> Task:
     """Create a CrewAI Task for the given agent with structured Pydantic output.
-    
+
     For Agent 1, if submission_text contains [PDF_FILE: ...] markers, extracts
     the PDF paths and passes them via the input_files parameter for direct reading.
     """
-    description = _build_description(agent_number, submission_text, prior_context, feedback_reason)
+    description = _build_description(agent_number, submission_text, prior_context)
     description += _json_only_instruction(agent_number)
     output_model = AGENT_OUTPUT_MODELS[agent_number]
     

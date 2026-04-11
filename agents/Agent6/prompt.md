@@ -26,8 +26,6 @@ Return ONLY one valid JSON object with these exact top-level keys:
 - thirty_day_plan
 - ninety_day_plan
 - mistake_to_avoid
-- rerun_from_agent
-- rerun_reason
 
 Output rules:
 - Do not output markdown, headings, tables, bullet lists, code fences, or commentary.

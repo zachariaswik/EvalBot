@@ -49,8 +49,6 @@ Return ONLY one valid JSON object with these exact top-level keys:
 - total_score
 - verdict
 - explanation
-- rerun_from_agent
-- rerun_reason
 
 Nested JSON requirements:
 - `swot` must be an object with keys: strengths, weaknesses, opportunities, threats.

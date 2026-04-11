@@ -78,16 +78,14 @@ Startups/
 
 Each agent's system prompt lives in `agents/Agent{N}/prompt.md`.
 
-**Feedback loop**: Agents 2–6 can request a re-run from an earlier agent if they detect insufficient data. The pipeline invalidates downstream outputs and re-executes from the requested agent. Maximum 18 iterations total.
-
 ### Key Source Files
 
 | File | Purpose |
 |------|---------|
 | `main.py` | CLI entry point; single/batch modes; file loading; results export |
-| `src/pipeline.py` | Core orchestration; sequential agent execution; feedback loop logic |
+| `src/pipeline.py` | Core orchestration; sequential agent execution |
 | `src/config.py` | Per-agent model assignment, retry/fallback settings, timeouts |
-| `src/models.py` | Pydantic output schemas for all 7 agents; `FeedbackMixin` for re-run requests |
+| `src/models.py` | Pydantic output schemas for all 7 agents |
 | `src/agents.py` | CrewAI agent factory; loads prompts from `agents/Agent{N}/prompt.md` |
 | `src/tasks.py` | CrewAI task creation with structured outputs |
 | `src/retry_utils.py` | Exponential backoff, fallback models, primary-model recovery logic |
@@ -113,7 +111,7 @@ output/Batch/batch_N/
 
 ### Database (SQLite `evalbot.db`)
 
-Tables: `batches`, `startups`, `agent_outputs` (with iteration tracking), `feedback_log`, `retry_log`, `hall_of_fame`.
+Tables: `batches`, `startups`, `agent_outputs`, `retry_log`, `hall_of_fame`.
 
 ## Environment
 

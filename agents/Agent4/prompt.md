@@ -32,8 +32,6 @@ Return ONLY one valid JSON object with these exact top-level keys:
 - moat
 - positioning
 - six_month_focus
-- rerun_from_agent
-- rerun_reason
 
 Output rules:
 - Do not output markdown, headings, tables, bullet lists, code fences, or commentary.

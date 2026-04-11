@@ -12,7 +12,6 @@ from src.config import (
     FALLBACK_MODEL,
     HALL_OF_FAME_MIN_SCORE,
     HALL_OF_FAME_SIZE,
-    MAX_ITERATIONS,
     QUALITY_GATE_THRESHOLD,
     RECOVERY_CHECK_INTERVAL,
     RECOVERY_COOLDOWN,
@@ -38,23 +37,6 @@ class TestGetModelForAgent:
         """Unknown agent number falls back to DEFAULT_MODEL."""
         result = get_model_for_agent(99)
         assert result == DEFAULT_MODEL
-
-    def test_no_rerun_model_ignores_is_rerun(self, monkeypatch):
-        """When RERUN_MODEL is None, is_rerun=True still uses agent's configured model."""
-        monkeypatch.setattr(cfg, "RERUN_MODEL", None)
-        result = get_model_for_agent(1, is_rerun=True)
-        assert result == AGENT_MODELS.get(1) or DEFAULT_MODEL
-
-    def test_rerun_model_overrides_on_rerun(self, monkeypatch):
-        """When RERUN_MODEL is set and is_rerun=True, RERUN_MODEL wins."""
-        monkeypatch.setattr(cfg, "RERUN_MODEL", "openai/gpt-4o-turbo")
-        assert get_model_for_agent(1, is_rerun=True) == "openai/gpt-4o-turbo"
-
-    def test_rerun_model_ignored_when_not_rerun(self, monkeypatch):
-        """RERUN_MODEL is ignored when is_rerun=False."""
-        monkeypatch.setattr(cfg, "RERUN_MODEL", "openai/gpt-4o-turbo")
-        result = get_model_for_agent(1, is_rerun=False)
-        assert result != "openai/gpt-4o-turbo"
 
     def test_all_standard_agents_return_strings(self):
         """All agents 1–7 return non-empty strings."""
@@ -94,9 +76,6 @@ class TestGetFallbackModelForAgent:
 # ---------------------------------------------------------------------------
 
 class TestConstants:
-    def test_max_iterations_positive(self):
-        assert MAX_ITERATIONS > 0
-
     def test_retry_attempts_positive(self):
         assert RETRY_ATTEMPTS > 0
 

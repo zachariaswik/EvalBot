@@ -73,7 +73,7 @@ def _seed_full_db(db_path: Path) -> None:
             },
             "explanation": "Top tier.",
         }),
-        1, db_path=db_path,
+        db_path=db_path,
     )
     store_agent_output(
         "batch_1", "AlphaCo", 1,
@@ -82,7 +82,7 @@ def _seed_full_db(db_path: Path) -> None:
             "one_line_description": "AI-powered deal sourcing",
             "problem": "VCs miss deals",
         }),
-        1, db_path=db_path,
+        db_path=db_path,
     )
 
     store_agent_output(
@@ -109,7 +109,7 @@ def _seed_full_db(db_path: Path) -> None:
             },
             "explanation": "Pass.",
         }),
-        1, db_path=db_path,
+        db_path=db_path,
     )
 
     # Batch 2 — one startup
@@ -139,7 +139,7 @@ def _seed_full_db(db_path: Path) -> None:
                 "threats": ["Entrenched players"],
             },
         }),
-        1, db_path=db_path,
+        db_path=db_path,
     )
 
 

@@ -80,7 +80,6 @@ _resolved_models: dict[str, str] = {}
 def create_agent(
     agent_number: int,
     llm: LLM | None = None,
-    is_rerun: bool = False,
 ) -> Agent:
     """Create a CrewAI Agent from its prompt.md file.
 
@@ -88,15 +87,13 @@ def create_agent(
         agent_number: Which agent (1-7).
         llm: Explicit LLM override. If None, resolved from config
              using get_model_for_agent().
-        is_rerun: If True (feedback-loop re-run), config may select
-                  a different model via RERUN_MODEL.
     """
     if agent_number < 1 or agent_number > 7:
         raise ValueError(f"Agent number must be 1-7, got {agent_number}")
     role, goal = _AGENT_META[agent_number]
     backstory = _load_prompt(agent_number)
     if llm is None:
-        model_name = get_model_for_agent(agent_number, is_rerun=is_rerun)
+        model_name = get_model_for_agent(agent_number)
         # Ensure Ollama models have sufficient context window
         if model_name not in _resolved_models:
             _resolved_models[model_name] = _ensure_ollama_context(model_name)

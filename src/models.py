@@ -3,35 +3,16 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
-
-
-# ---------------------------------------------------------------------------
-# Feedback mixin — agents 2-6 can request a re-run from an earlier agent
-# ---------------------------------------------------------------------------
-
-class FeedbackMixin(BaseModel):
-    rerun_from_agent: Optional[int] = Field(
-        default=None,
-        description=(
-            "If the analysis reveals that an earlier agent's output is insufficient "
-            "or inconsistent, set this to the agent number (1-6) to re-run from. "
-            "Leave null/None if no re-run is needed."
-        ),
-    )
-    rerun_reason: Optional[str] = Field(
-        default=None,
-        description="Explanation of why a re-run from an earlier agent is needed.",
-    )
 
 
 # ---------------------------------------------------------------------------
 # Agent 1 — Intake Parser
 # ---------------------------------------------------------------------------
 
-class Agent1Output(FeedbackMixin):
+class Agent1Output(BaseModel):
     startup_name: str = Field(default="Unknown Startup", description="Name of the startup")
     one_line_description: str = Field(default="Not provided", description="One-line description of the startup")
     problem: str = Field(default="Not provided", description="Problem the startup is solving")
@@ -73,7 +54,7 @@ class SWOTModel(BaseModel):
     threats: list[str] = Field(default_factory=list)
 
 
-class Agent2Output(FeedbackMixin):
+class Agent2Output(BaseModel):
     summary: str = Field(default="Not provided")
     problem_assessment: str = Field(default="Not provided")
     market_assessment: str = Field(default="Not provided")
@@ -115,7 +96,7 @@ class MarketSizeClass(str, Enum):
     NEW_CATEGORY = "new category"
 
 
-class Agent3Output(FeedbackMixin):
+class Agent3Output(BaseModel):
     market_category: str
     size_class: MarketSizeClass
     trend: str = Field(description="Market growth and trends")
@@ -139,7 +120,7 @@ class WrapperRisk(str, Enum):
     HIGH = "high"
 
 
-class Agent4Output(FeedbackMixin):
+class Agent4Output(BaseModel):
     product_reality: str = Field(description="What the product really is")
     value_prop: str = Field(description="Value proposition")
     killer_feature: str = Field(description="Killer feature, if any")
@@ -157,7 +138,7 @@ class Agent4Output(FeedbackMixin):
 # Agent 5 — Founder Fit Analyst
 # ---------------------------------------------------------------------------
 
-class Agent5Output(FeedbackMixin):
+class Agent5Output(BaseModel):
     founder_fit: str | dict[str, Any] = Field(description="Founder-market fit assessment")
     domain: str | dict[str, Any] = Field(description="Domain expertise assessment")
     technical: str | dict[str, Any] = Field(description="Technical strength assessment")
@@ -183,7 +164,7 @@ class Recommendation(str, Enum):
     DROP = "Drop"
 
 
-class Agent6Output(FeedbackMixin):
+class Agent6Output(BaseModel):
     recommendation: Recommendation = Field(default=Recommendation.REFINE)
     customer_segment: str = Field(default="Not provided", description="Best customer segment")
     wedge: str = Field(default="Not provided", description="Best wedge strategy")

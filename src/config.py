@@ -5,8 +5,6 @@ AGENTS_DIR = PROJECT_ROOT / "agents"
 COURSE_DOCS_DIR = PROJECT_ROOT / "CourseDocs"
 DB_PATH = PROJECT_ROOT / "evalbot.db"
 
-MAX_ITERATIONS = 18  # Safety limit: 3x the 6 agents in the loop
-
 # ---------------------------------------------------------------------------
 # Intake Quality Gate
 # ---------------------------------------------------------------------------
@@ -47,10 +45,6 @@ AGENT_TIMEOUT = 420  # 7 minutes
 # Total wall-clock time budget for processing one startup across all agents.
 # After this limit, the startup is marked as failed and stored for re-running.
 TOTAL_STARTUP_TIMEOUT = 960  # 16 minutes
-
-# Model used for re-runs (when a downstream agent triggers a re-run of an
-# earlier agent). Set to None to reuse the same model the agent normally uses.
-RERUN_MODEL: str | None = None
 
 # Per-agent model overrides. Set to a model string to override DEFAULT_MODEL.
 # None means "use DEFAULT_MODEL".
@@ -103,16 +97,13 @@ HALL_OF_FAME_SIZE = 50
 HALL_OF_FAME_MIN_SCORE = 60
 
 
-def get_model_for_agent(agent_number: int, is_rerun: bool = False) -> str:
+def get_model_for_agent(agent_number: int) -> str:
     """Resolve which LLM model string to use for a given agent.
 
     Priority order:
-    1. RERUN_MODEL (if is_rerun=True and RERUN_MODEL is set)
-    2. AGENT_MODELS[agent_number] (per-agent override)
-    3. DEFAULT_MODEL (fallback)
+    1. AGENT_MODELS[agent_number] (per-agent override)
+    2. DEFAULT_MODEL (fallback)
     """
-    if is_rerun and RERUN_MODEL:
-        return RERUN_MODEL
     return AGENT_MODELS.get(agent_number) or DEFAULT_MODEL
 
 
