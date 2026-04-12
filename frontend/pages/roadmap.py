@@ -188,41 +188,59 @@ def roadmap_page() -> rx.Component:
                 ),
             ),
 
-            # 02 — Course Integration
+            # 02 — Course Integration (Evolve API)
             roadmap_card(
                 "02",
-                '<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="1" y="3" width="18" height="13" rx="2.5" stroke="#0d9488" stroke-width="1.5"/><polygon points="8.5,8 8.5,13.5 14.5,10.7" fill="#0d9488"/></svg>',
+                '<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M8.5 12a4.5 4.5 0 006.8.49l2.5-2.5a4.5 4.5 0 00-6.36-6.36L9.78 4.8" stroke="#0d9488" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M11.5 8a4.5 4.5 0 00-6.8-.49L2.2 10a4.5 4.5 0 006.36 6.36l1.61-1.6" stroke="#0d9488" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
                 TEAL_BG, "rgba(20,184,166,0.15)",
                 "Course Integration",
-                "Host the full accelerator curriculum on-platform. Self-paced video lectures, interactive worksheets, and document uploads — all feeding EvalBot.",
+                "Connect to the Evolve platform via API. Course content, student progress, and bot evaluations sync automatically — run the EvalBot and keep the full overview from AltaLab.",
                 "/roadmap/course-integration",
                 TEAL_BG,
                 rx.box(
                     rx.hstack(
-                        rx.box(style={"width": "44px", "height": "4px", "borderRadius": "2px", "background": TEAL, "flexShrink": "0"}),
-                        rx.box(style={"flex": "1", "height": "4px", "borderRadius": "2px", "background": "#e5ecf7"}),
-                        spacing="0",
-                        style={"marginBottom": "6px"},
+                        rx.box(style={"width": "7px", "height": "7px", "borderRadius": "50%",
+                                      "background": GREEN, "boxShadow": f"0 0 4px {GREEN}",
+                                      "flexShrink": "0"}),
+                        rx.text("Evolve API · Connected",
+                                style={"fontSize": "10px", "fontWeight": "700", "color": GREEN}),
+                        spacing="1",
+                        align="center",
+                        style={"marginBottom": "10px"},
                     ),
-                    rx.text("Module 3 of 8 · 38%", style={"fontFamily": "'Courier New', monospace", "fontSize": "9px", "color": TEXT_3, "marginBottom": "10px"}),
-                    rx.vstack(
+                    rx.hstack(
                         *[
-                            rx.hstack(
-                                rx.html(icon),
-                                rx.text(label, style={"fontSize": "11px", "fontWeight": "600", "color": clr}),
-                                spacing="2",
+                            rx.vstack(
+                                rx.text(val, style={"fontSize": "15px", "fontWeight": "800",
+                                                    "color": clr, "lineHeight": "1",
+                                                    "fontFamily": "'Courier New', monospace"}),
+                                rx.text(label, style={"fontSize": "9px", "color": TEXT_3,
+                                                      "fontWeight": "600"}),
+                                spacing="1",
                                 align="center",
                             )
-                            for icon, label, clr in [
-                                ('<svg width="11" height="11" viewBox="0 0 11 11" fill="none"><circle cx="5.5" cy="5.5" r="5" fill="#d1fae5"/><path d="M3 5.5l1.8 1.8 3-3.3" stroke="#0a7c52" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></svg>', "01 · Introduction", GREEN),
-                                ('<svg width="11" height="11" viewBox="0 0 11 11" fill="none"><circle cx="5.5" cy="5.5" r="5" fill="#d1fae5"/><path d="M3 5.5l1.8 1.8 3-3.3" stroke="#0a7c52" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></svg>', "02 · Market Sizing", GREEN),
-                                ('<svg width="11" height="11" viewBox="0 0 11 11" fill="none"><circle cx="5.5" cy="5.5" r="5" fill="#ccfbf1"/><polygon points="4.5,3.5 4.5,7.5 8.5,5.5" fill="#0d9488"/></svg>', "03 · Business Model", TEAL),
-                                ('<svg width="11" height="11" viewBox="0 0 11 11" fill="none"><rect x="2.5" y="5" width="6" height="4.5" rx="1" stroke="#aebdd0" stroke-width="1"/><path d="M4 5V4a1.5 1.5 0 013 0v1" stroke="#aebdd0" stroke-width="1"/></svg>', "04 · Financials", TEXT_3),
+                            for val, label, clr in [
+                                ("8/8",  "Modules",  TEAL),
+                                ("24",   "Founders", BLUE),
+                                ("61",   "Synced",   GREEN),
                             ]
                         ],
-                        spacing="2",
+                        justify="between",
+                        style={"marginBottom": "10px"},
                     ),
-                    style={"padding": "14px 16px", "background": SURFACE_2, "border": f"1px solid {BORDER}", "borderRadius": "8px", "opacity": "0.85"},
+                    rx.hstack(
+                        rx.box(style={"width": "7px", "height": "7px", "borderRadius": "50%",
+                                      "background": PURPLE, "flexShrink": "0"}),
+                        rx.text("EvalBot",
+                                style={"fontSize": "10px", "fontWeight": "700", "color": TEXT}),
+                        rx.box(style={"flex": "1"}),
+                        rx.text("Running · 18 evals",
+                                style={"fontSize": "9px", "color": PURPLE, "fontWeight": "600"}),
+                        spacing="1",
+                        align="center",
+                    ),
+                    style={"padding": "14px 16px", "background": SURFACE_2,
+                           "border": f"1px solid {BORDER}", "borderRadius": "8px", "opacity": "0.85"},
                 ),
             ),
 

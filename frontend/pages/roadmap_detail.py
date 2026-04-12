@@ -1462,12 +1462,12 @@ def founder_portal_page() -> rx.Component:  # noqa: C901
 # ── Page 8: Course Integration ────────────────────────────────────────────────
 
 def course_integration_page() -> rx.Component:
-    """Course Integration — host the full accelerator curriculum on-platform."""
+    """Course Integration — Evolve API bridge: sync content, run bot, unified overview."""
 
-    _PLAY_ICON = (
+    _LINK_ICON = (
         '<svg width="22" height="22" viewBox="0 0 22 22" fill="none">'
-        '<rect x="1" y="3" width="20" height="16" rx="3" stroke="#0d9488" stroke-width="1.5"/>'
-        '<polygon points="9,9 9,15 15,12" fill="#0d9488"/>'
+        '<path d="M9 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" stroke="#0d9488" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>'
+        '<path d="M13 9a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" stroke="#0d9488" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>'
         '</svg>'
     )
     _CHK = (
@@ -1476,16 +1476,20 @@ def course_integration_page() -> rx.Component:
         '<path d="M3.5 6l2 2 3-3.5" stroke="#0a7c52" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>'
         '</svg>'
     )
-    _PLY = (
+    _SYNC = (
         '<svg width="12" height="12" viewBox="0 0 12 12" fill="none">'
         '<circle cx="6" cy="6" r="5.5" fill="#ccfbf1"/>'
-        '<polygon points="5,3.5 5,8.5 9.5,6" fill="#0d9488"/>'
+        '<path d="M4 3.5A3 3 0 019 6" stroke="#0d9488" stroke-width="1.1" stroke-linecap="round"/>'
+        '<path d="M8 8.5A3 3 0 013 6" stroke="#0d9488" stroke-width="1.1" stroke-linecap="round"/>'
+        '<polygon points="9,4.5 10.5,3 10.5,6" fill="#0d9488"/>'
         '</svg>'
     )
-    _LCK = (
+    _BOT = (
         '<svg width="12" height="12" viewBox="0 0 12 12" fill="none">'
-        '<rect x="2.5" y="5.5" width="7" height="5" rx="1" stroke="#aebdd0" stroke-width="1"/>'
-        '<path d="M4 5.5V4a2 2 0 014 0v1.5" stroke="#aebdd0" stroke-width="1"/>'
+        '<circle cx="6" cy="6" r="5.5" fill="rgba(27,72,196,0.12)"/>'
+        '<circle cx="4.5" cy="5.5" r="1" fill="#1b48c4"/>'
+        '<circle cx="7.5" cy="5.5" r="1" fill="#1b48c4"/>'
+        '<path d="M4 8s.8 1 2 1 2-1 2-1" stroke="#1b48c4" stroke-width="1" stroke-linecap="round"/>'
         '</svg>'
     )
 
@@ -1502,26 +1506,26 @@ def course_integration_page() -> rx.Component:
                 },
             ),
             rx.text(label, style={"fontSize": "11px", "fontWeight": "600", "color": TEXT_2,
-                                  "textAlign": "center", "maxWidth": "72px"}),
+                                  "textAlign": "center", "maxWidth": "80px"}),
             spacing="2",
             align="center",
         )
 
     journey_strip = rx.box(
         rx.hstack(
-            _step("1", "Enroll", TEAL, TEAL_BG),
+            _step("1", "Founder on Evolve", TEAL, TEAL_BG),
             rx.box(style={"flex": "1", "height": "1.5px", "marginTop": "-18px",
                           "background": f"linear-gradient(90deg,{TEAL},{GOLD})"}),
-            _step("2", "Watch Lectures", GOLD, GOLD_BG),
+            _step("2", "Completes Modules", GOLD, GOLD_BG),
             rx.box(style={"flex": "1", "height": "1.5px", "marginTop": "-18px",
                           "background": f"linear-gradient(90deg,{GOLD},{BLUE})"}),
-            _step("3", "Complete Forms", BLUE, BLUE_BG),
+            _step("3", "API Sync", BLUE, BLUE_BG),
             rx.box(style={"flex": "1", "height": "1.5px", "marginTop": "-18px",
                           "background": f"linear-gradient(90deg,{BLUE},{PURPLE})"}),
-            _step("4", "Upload Docs", PURPLE, PURPLE_BG),
+            _step("4", "EvalBot Runs", PURPLE, PURPLE_BG),
             rx.box(style={"flex": "1", "height": "1.5px", "marginTop": "-18px",
                           "background": f"linear-gradient(90deg,{PURPLE},{GREEN})"}),
-            _step("5", "EvalBot Runs", GREEN, GREEN_BG),
+            _step("5", "Overview in AltaLab", GREEN, GREEN_BG),
             align="center",
             spacing="0",
         ),
@@ -1535,48 +1539,87 @@ def course_integration_page() -> rx.Component:
         },
     )
 
-    # ── Course mockup (sidebar + active module panel) ─────────────────────────
+    # ── Evolve Sync panel (left) ───────────────────────────────────────────────
 
-    def _mod_row(icon_html: str, label: str, sub: str, accent: str, bg: str) -> rx.Component:
+    def _sync_row(icon_html: str, label: str, value: str, accent: str) -> rx.Component:
         return rx.hstack(
             rx.html(icon_html),
-            rx.vstack(
-                rx.text(label, style={"fontSize": "12px", "fontWeight": "700", "color": TEXT, "lineHeight": "1.2"}),
-                rx.text(sub, style={"fontSize": "10px", "color": accent, "fontWeight": "600"}),
-                spacing="0",
-                align="start",
-            ),
+            rx.text(label, style={"fontSize": "12px", "color": TEXT_2, "flex": "1"}),
+            rx.text(value, style={"fontSize": "12px", "fontWeight": "700", "color": accent,
+                                  "fontFamily": "'Courier New', monospace"}),
             spacing="2",
             align="center",
-            style={"padding": "7px 10px", "background": bg, "borderRadius": "6px", "marginBottom": "3px"},
+            style={"padding": "7px 10px", "background": SURFACE_2,
+                   "borderRadius": "6px", "marginBottom": "4px"},
         )
 
-    module_sidebar = rx.box(
+    def _mod_sync_row(label: str, pct: int, status: str, status_color: str) -> rx.Component:
+        return rx.hstack(
+            rx.html(_CHK if status == "Synced" else _SYNC),
+            rx.vstack(
+                rx.text(label, style={"fontSize": "11px", "fontWeight": "600", "color": TEXT,
+                                      "lineHeight": "1.2"}),
+                rx.hstack(
+                    rx.box(style={"width": f"{pct}%", "height": "3px", "background": TEAL,
+                                  "borderRadius": "2px"}),
+                    rx.box(style={"flex": "1", "height": "3px", "background": "#e5ecf7",
+                                  "borderRadius": "2px"}),
+                    spacing="0",
+                    style={"width": "100%"},
+                ),
+                spacing="1",
+                align="start",
+                style={"flex": "1"},
+            ),
+            rx.text(status, style={"fontSize": "10px", "color": status_color, "fontWeight": "600",
+                                   "flexShrink": "0"}),
+            spacing="2",
+            align="center",
+            style={"padding": "7px 10px", "background": SURFACE_2,
+                   "borderRadius": "6px", "marginBottom": "3px"},
+        )
+
+    sync_panel = rx.box(
+        rx.hstack(
+            rx.box(
+                style={"width": "8px", "height": "8px", "borderRadius": "50%",
+                       "background": GREEN, "boxShadow": f"0 0 6px {GREEN}"},
+            ),
+            rx.text("Evolve API", style={"fontSize": "10px", "fontWeight": "700", "color": TEXT_3,
+                                         "letterSpacing": "0.08em", "textTransform": "uppercase"}),
+            rx.box(style={"flex": "1"}),
+            rx.text("Connected", style={"fontSize": "10px", "color": GREEN, "fontWeight": "700"}),
+            spacing="2",
+            align="center",
+            style={"marginBottom": "14px"},
+        ),
+        _sync_row(
+            '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="2" width="10" height="8" rx="1.5" stroke="#0d9488" stroke-width="1"/><line x1="1" y1="5" x2="11" y2="5" stroke="#0d9488" stroke-width="0.8"/></svg>',
+            "Modules imported", "8 / 8", TEAL,
+        ),
+        _sync_row(
+            '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="4.5" r="2" stroke="#1b48c4" stroke-width="1"/><path d="M2 10.5c0-2.2 1.8-4 4-4s4 1.8 4 4" stroke="#1b48c4" stroke-width="1" stroke-linecap="round"/></svg>',
+            "Founders enrolled", "24", BLUE,
+        ),
+        _sync_row(
+            '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 8l2.5-3 2 2 2-2.5 1.5 1.5" stroke="#0a7c52" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/><rect x="1" y="1" width="10" height="10" rx="1.5" stroke="#0a7c52" stroke-width="1"/></svg>',
+            "Completions synced", "61", GREEN,
+        ),
+        _sync_row(
+            '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="4.5" stroke="#7188a4" stroke-width="1"/><line x1="6" y1="4" x2="6" y2="6.5" stroke="#7188a4" stroke-width="1" stroke-linecap="round"/><circle cx="6" cy="8" r="0.5" fill="#7188a4"/></svg>',
+            "Last sync", "2 min ago", TEXT_3,
+        ),
         rx.text("Course Modules", style={"fontSize": "10px", "fontWeight": "700", "color": TEXT_3,
-                                         "letterSpacing": "0.08em", "textTransform": "uppercase",
-                                         "marginBottom": "10px"}),
-        rx.hstack(
-            rx.box(style={"width": "44px", "height": "4px", "borderRadius": "2px", "background": TEAL, "flexShrink": "0"}),
-            rx.box(style={"flex": "1", "height": "4px", "borderRadius": "2px", "background": "#e5ecf7"}),
-            spacing="0",
-            style={"marginBottom": "4px"},
-        ),
-        rx.hstack(
-            rx.text("Module 3 of 8", style={"fontSize": "10px", "color": TEXT_3, "fontWeight": "600"}),
-            rx.text("38%", style={"fontSize": "10px", "color": TEAL, "fontWeight": "700",
-                                  "fontFamily": "'Courier New', monospace"}),
-            justify="between",
-            width="100%",
-            style={"marginBottom": "12px"},
-        ),
-        _mod_row(_CHK, "01 · Introduction",         "Completed",   GREEN,  "#f0fdf6"),
-        _mod_row(_CHK, "02 · Market Sizing",         "Completed",   GREEN,  "#f0fdf6"),
-        _mod_row(_PLY, "03 · Business Model",        "In progress", TEAL,   "#f0fafa"),
-        _mod_row(_LCK, "04 · Financials",            "Locked",      TEXT_3, SURFACE_2),
-        _mod_row(_LCK, "05 · GTM Strategy",          "Locked",      TEXT_3, SURFACE_2),
-        _mod_row(_LCK, "06 · Team & Execution",      "Locked",      TEXT_3, SURFACE_2),
-        _mod_row(_LCK, "07 · Pitch & Storytelling",  "Locked",      TEXT_3, SURFACE_2),
-        _mod_row(_LCK, "08 · Demo Day Prep",         "Locked",      TEXT_3, SURFACE_2),
+                                          "letterSpacing": "0.07em", "textTransform": "uppercase",
+                                          "margin": "14px 0 8px"}),
+        _mod_sync_row("01 · Introduction",        100, "Synced",  GREEN),
+        _mod_sync_row("02 · Market Sizing",        100, "Synced",  GREEN),
+        _mod_sync_row("03 · Business Model",       100, "Synced",  GREEN),
+        _mod_sync_row("04 · Financials",            80, "Syncing", TEAL),
+        _mod_sync_row("05 · GTM Strategy",          80, "Syncing", TEAL),
+        _mod_sync_row("06 · Team & Execution",      60, "Syncing", TEAL),
+        _mod_sync_row("07 · Pitch & Storytelling",  40, "Syncing", TEAL),
+        _mod_sync_row("08 · Demo Day Prep",         40, "Syncing", TEAL),
         style={
             "background": SURFACE,
             "border": f"1px solid {BORDER}",
@@ -1588,58 +1631,128 @@ def course_integration_page() -> rx.Component:
         },
     )
 
-    active_module = rx.box(
-        rx.text("Module 03 · Business Model",
-                style={"fontSize": "13px", "fontWeight": "800", "color": TEXT,
-                       "letterSpacing": "-0.01em", "marginBottom": "12px"}),
-        # Video player
-        rx.box(
+    # ── EvalBot panel (right) ───────────────────────────────────────────────
+
+    def _bot_log_row(ts: str, founder: str, event: str, color: str) -> rx.Component:
+        return rx.hstack(
+            rx.text(ts, style={"fontSize": "9px", "color": TEXT_3,
+                               "fontFamily": "'Courier New', monospace", "flexShrink": "0",
+                               "width": "36px"}),
+            rx.text(founder, style={"fontSize": "10px", "fontWeight": "700", "color": TEXT,
+                                    "flexShrink": "0", "width": "76px",
+                                    "overflow": "hidden", "textOverflow": "ellipsis",
+                                    "whiteSpace": "nowrap"}),
+            rx.text(event, style={"fontSize": "10px", "color": color, "flex": "1",
+                                  "overflow": "hidden", "textOverflow": "ellipsis",
+                                  "whiteSpace": "nowrap"}),
+            spacing="2",
+            align="center",
+            style={"padding": "5px 8px", "borderBottom": f"1px solid {BORDER}"},
+        )
+
+    bot_panel = rx.box(
+        rx.hstack(
+            rx.box(
+                rx.html(
+                    '<svg width="16" height="16" viewBox="0 0 20 20" fill="none">'
+                    '<rect x="4" y="6" width="12" height="10" rx="2" stroke="#7c3aed" stroke-width="1.5"/>'
+                    '<circle cx="7.5" cy="11" r="1" fill="#7c3aed"/>'
+                    '<circle cx="12.5" cy="11" r="1" fill="#7c3aed"/>'
+                    '<path d="M8 14.5s.8.8 2 .8 2-.8 2-.8" stroke="#7c3aed" stroke-width="1" stroke-linecap="round"/>'
+                    '<path d="M10 6V3" stroke="#7c3aed" stroke-width="1.5" stroke-linecap="round"/>'
+                    '<circle cx="10" cy="2.5" r="1" fill="#7c3aed"/>'
+                    '</svg>'
+                ),
+                style={"width": "30px", "height": "30px", "background": PURPLE_BG,
+                       "borderRadius": "8px", "border": "1px solid rgba(147,51,234,0.18)",
+                       "display": "flex", "alignItems": "center", "justifyContent": "center",
+                       "flexShrink": "0"},
+            ),
             rx.vstack(
-                rx.html('<svg width="36" height="36" viewBox="0 0 36 36" fill="none"><circle cx="18" cy="18" r="17" stroke="#0d9488" stroke-width="1.5" opacity="0.3"/><polygon points="15,12 15,24 25,18" fill="#0d9488" opacity="0.6"/></svg>'),
-                rx.text("Lecture: Business Model Canvas",
-                        style={"fontSize": "12px", "color": "#7aabb4", "fontWeight": "600"}),
-                rx.text("24:30", style={"fontFamily": "'Courier New', monospace",
-                                        "fontSize": "10px", "color": "#4a7a84"}),
+                rx.text("EvalBot", style={"fontSize": "13px", "fontWeight": "800",
+                                             "color": TEXT, "lineHeight": "1.1"}),
+                rx.text("Evaluation assistant for course completions",
+                        style={"fontSize": "10px", "color": TEXT_3}),
+                spacing="0",
+                align="start",
+            ),
+            spacing="3",
+            align="center",
+            style={"marginBottom": "16px"},
+        ),
+        # Status strip
+        rx.hstack(
+            rx.hstack(
+                rx.box(style={"width": "7px", "height": "7px", "borderRadius": "50%",
+                               "background": GREEN, "boxShadow": f"0 0 5px {GREEN}"}),
+                rx.text("Running", style={"fontSize": "11px", "color": GREEN, "fontWeight": "700"}),
+                spacing="1", align="center",
+            ),
+            rx.box(style={"flex": "1"}),
+            rx.text("Last run: 4 min ago", style={"fontSize": "10px", "color": TEXT_3}),
+            align="center",
+            style={"padding": "8px 12px", "background": "#f0fdf6",
+                   "border": "1px solid rgba(10,124,82,0.18)", "borderRadius": "8px",
+                   "marginBottom": "14px"},
+        ),
+        # Stats row
+        rx.hstack(
+            rx.vstack(
+                rx.text("18", style={"fontSize": "20px", "fontWeight": "800", "color": PURPLE,
+                                     "fontFamily": "'Courier New', monospace", "lineHeight": "1"}),
+                rx.text("Evals run", style={"fontSize": "10px", "color": TEXT_3, "fontWeight": "600"}),
+                spacing="1", align="center",
+            ),
+            rx.box(style={"width": "1px", "height": "36px", "background": BORDER}),
+            rx.vstack(
+                rx.text("6", style={"fontSize": "20px", "fontWeight": "800", "color": TEAL,
+                                    "fontFamily": "'Courier New', monospace", "lineHeight": "1"}),
+                rx.text("Pending", style={"fontSize": "10px", "color": TEXT_3, "fontWeight": "600"}),
+                spacing="1", align="center",
+            ),
+            rx.box(style={"width": "1px", "height": "36px", "background": BORDER}),
+            rx.vstack(
+                rx.text("24", style={"fontSize": "20px", "fontWeight": "800", "color": BLUE,
+                                     "fontFamily": "'Courier New', monospace", "lineHeight": "1"}),
+                rx.text("Founders", style={"fontSize": "10px", "color": TEXT_3, "fontWeight": "600"}),
+                spacing="1", align="center",
+            ),
+            justify="between",
+            style={"padding": "12px 16px", "background": SURFACE_2,
+                   "borderRadius": "8px", "marginBottom": "14px"},
+        ),
+        # Activity log
+        rx.text("Recent Activity", style={"fontSize": "10px", "fontWeight": "700", "color": TEXT_3,
+                                           "letterSpacing": "0.07em", "textTransform": "uppercase",
+                                           "marginBottom": "6px"}),
+        rx.box(
+            _bot_log_row("0m",  "Teemu V.",    "Bot evaluation completed — score 74",   GREEN),
+            _bot_log_row("4m",  "Sara K.",     "Module 08 synced from Evolve",          TEAL),
+            _bot_log_row("11m", "Marcus L.",   "Bot evaluation completed — score 61",   BLUE),
+            _bot_log_row("18m", "Aisha N.",    "Module 07 synced from Evolve",          TEAL),
+            _bot_log_row("23m", "Jonas B.",    "Bot evaluation completed — score 82",   GREEN),
+            _bot_log_row("31m", "Priya M.",    "All 8 modules synced — bot queued",     PURPLE),
+            style={"background": SURFACE_2, "borderRadius": "8px",
+                   "border": f"1px solid {BORDER}", "overflow": "hidden",
+                   "marginBottom": "14px"},
+        ),
+        # Trigger button mockup
+        rx.box(
+            rx.hstack(
+                rx.html(
+                    '<svg width="12" height="12" viewBox="0 0 12 12" fill="none">'
+                    '<polygon points="3,2 3,10 10,6" fill="white"/>'
+                    '</svg>'
+                ),
+                rx.text("Run EvalBot Now",
+                        style={"fontSize": "12px", "color": "white", "fontWeight": "700"}),
                 spacing="2",
                 align="center",
             ),
-            style={
-                "background": "#0d1a2e",
-                "borderRadius": "8px",
-                "height": "100px",
-                "display": "flex", "alignItems": "center", "justifyContent": "center",
-                "marginBottom": "14px",
-            },
-        ),
-        # Worksheet
-        rx.text("Module Worksheet", style={"fontSize": "10px", "fontWeight": "700", "color": TEXT_3,
-                                           "letterSpacing": "0.06em", "textTransform": "uppercase",
-                                           "marginBottom": "8px"}),
-        rx.vstack(
-            rx.box(
-                rx.text("Describe your revenue model",
-                        style={"fontSize": "10px", "color": TEXT_3, "marginBottom": "4px"}),
-                rx.box(style={"height": "28px", "background": SURFACE_2, "border": f"1px solid {BORDER}", "borderRadius": "4px"}),
-            ),
-            rx.box(
-                rx.text("Primary customer segment",
-                        style={"fontSize": "10px", "color": TEXT_3, "marginBottom": "4px"}),
-                rx.box(style={"height": "22px", "background": SURFACE_2, "border": f"1px solid {BORDER}", "borderRadius": "4px"}),
-            ),
-            spacing="3",
-            style={"marginBottom": "12px"},
-        ),
-        # Upload CTA
-        rx.box(
-            rx.hstack(
-                rx.html('<svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M5.5 8.5V2.5m0 0L3 5m2.5-2.5L8 5" stroke="#1b48c4" stroke-width="1.2" stroke-linecap="round"/></svg>'),
-                rx.text("Upload pitch deck (required to continue)",
-                        style={"fontSize": "10px", "color": BLUE, "fontWeight": "600"}),
-                spacing="1",
-                align="center",
-            ),
-            style={"padding": "6px 10px", "background": BLUE_BG,
-                   "border": "1px solid rgba(27,72,196,0.15)", "borderRadius": "5px"},
+            style={"padding": "9px 16px", "background": PURPLE,
+                   "borderRadius": "7px", "display": "inline-flex",
+                   "alignItems": "center", "cursor": "default",
+                   "boxShadow": "0 2px 8px rgba(124,58,237,0.3)"},
         ),
         style={
             "background": SURFACE,
@@ -1696,78 +1809,78 @@ def course_integration_page() -> rx.Component:
             },
         )
 
-    feat_video = _feat(
-        '<svg width="18" height="18" viewBox="0 0 20 20" fill="none"><rect x="1" y="3" width="18" height="14" rx="2.5" stroke="#0d9488" stroke-width="1.5"/><polygon points="8.5,8 8.5,13.5 14.5,10.7" fill="#0d9488"/></svg>',
+    feat_sync = _feat(
+        '<svg width="18" height="18" viewBox="0 0 20 20" fill="none"><path d="M4 10a6 6 0 0110.5-4" stroke="#0d9488" stroke-width="1.5" stroke-linecap="round"/><path d="M16 10a6 6 0 01-10.5 4" stroke="#0d9488" stroke-width="1.5" stroke-linecap="round"/><polyline points="14,4 16.5,6 14,8" stroke="#0d9488" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><polyline points="6,12 3.5,14 6,16" stroke="#0d9488" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
         TEAL_BG, "rgba(20,184,166,0.15)", TEAL,
-        "Self-Paced Video Library",
+        "Evolve API Sync",
         [
-            "Pre-recorded lectures — no scheduling, no live sessions",
-            "Each module unlocks after the prior one is completed",
-            "Resume from where you left off, on any device",
-            "Progress saved per founder account",
+            "All course modules, video metadata, and student progress imported automatically",
+            "Bi-directional: completion events on Evolve propagate to AltaLab in real time",
+            "No manual data entry — Evolve remains the source of truth",
+            "Re-syncs on a configurable schedule (e.g. every 5 minutes)",
         ],
     )
-    feat_forms = _feat(
+    feat_bot = _feat(
+        '<svg width="18" height="18" viewBox="0 0 20 20" fill="none"><rect x="4" y="7" width="12" height="10" rx="2.5" stroke="#7c3aed" stroke-width="1.5"/><circle cx="8" cy="12" r="1.2" fill="#7c3aed"/><circle cx="12" cy="12" r="1.2" fill="#7c3aed"/><path d="M8.5 15.5s.8.8 1.5.8 1.5-.8 1.5-.8" stroke="#7c3aed" stroke-width="1" stroke-linecap="round"/><path d="M10 7V4" stroke="#7c3aed" stroke-width="1.5" stroke-linecap="round"/><circle cx="10" cy="3" r="1.2" fill="#7c3aed"/></svg>',
+        PURPLE_BG, "rgba(147,51,234,0.15)", PURPLE,
+        "EvalBot Runner",
+        [
+            "Trigger the Evolve evaluation bot directly from AltaLab's interface",
+            "Bot runs automatically when a founder completes all 8 modules on Evolve",
+            "Results (score, feedback, flags) written back to AltaLab immediately",
+            "Full bot activity log — who ran, when, and what outcome",
+        ],
+    )
+    feat_material = _feat(
         '<svg width="18" height="18" viewBox="0 0 20 20" fill="none"><rect x="2" y="2" width="16" height="16" rx="2.5" stroke="#a85800" stroke-width="1.5"/><line x1="6" y1="7" x2="14" y2="7" stroke="#a85800" stroke-width="1.5" stroke-linecap="round"/><line x1="6" y1="10.5" x2="14" y2="10.5" stroke="#a85800" stroke-width="1.5" stroke-linecap="round"/><line x1="6" y1="14" x2="10" y2="14" stroke="#a85800" stroke-width="1.5" stroke-linecap="round"/></svg>',
         GOLD_BG, "rgba(168,88,0,0.15)", GOLD,
-        "Interactive Module Worksheets",
+        "Full Material Mirror",
         [
-            "Structured forms per module: market sizing, BMC, financials, GTM",
-            "Free-text, dropdowns, and numeric input fields",
-            "Data validates before the next module unlocks",
-            "All responses tied to the founder's company profile",
+            "All curriculum content from Evolve is browsable inside AltaLab",
+            "Module descriptions, learning objectives, and assets accessible in one place",
+            "Analysts can review what founders studied before evaluating their pitch",
+            "Content updates on Evolve automatically reflect in AltaLab on next sync",
         ],
     )
-    feat_upload = _feat(
-        '<svg width="18" height="18" viewBox="0 0 20 20" fill="none"><path d="M10 14V4m0 0L7 7m3-3l3 3" stroke="#1b48c4" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 16h12" stroke="#1b48c4" stroke-width="1.5" stroke-linecap="round"/></svg>',
-        BLUE_BG, "rgba(27,72,196,0.15)", BLUE,
-        "Per-Stage Document Uploads",
-        [
-            "Upload pitch deck, financial model, and team bios per stage",
-            "Accepted formats: PDF, DOCX, TXT, MD",
-            "Required uploads gate module progression",
-            "Versioned — new uploads replace old without losing history",
-        ],
-    )
-    feat_pipeline = _feat(
+    feat_overview = _feat(
         '<svg width="18" height="18" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="3" fill="#0a7c52" opacity="0.2"/><circle cx="10" cy="10" r="1.5" fill="#0a7c52"/><path d="M10 2v3M10 15v3M2 10h3M15 10h3" stroke="#0a7c52" stroke-width="1.5" stroke-linecap="round"/><path d="M4.9 4.9l2.2 2.2M12.9 12.9l2.2 2.2M4.9 15.1l2.2-2.2M12.9 7.1l2.2-2.2" stroke="#0a7c52" stroke-width="1" stroke-linecap="round" opacity="0.5"/></svg>',
         GREEN_BG, "rgba(10,124,82,0.15)", GREEN,
-        "EvalBot Pipeline Integration",
+        "Unified Progress Overview",
         [
-            "On completion, all worksheets and uploads auto-feed the 7-agent pipeline",
-            "Same evaluation flow as a standard batch run",
-            "Founders see their own score and verdict — admins see all",
-            "Cohort comparison unlocks after evaluation completes",
+            "Single dashboard: every founder's module completions, bot score, and pipeline status",
+            "Filter by cohort, module progress, or bot evaluation outcome",
+            "Completed founders auto-feed the 7-agent AltaLab evaluation pipeline",
+            "Admins see the full picture; founders see only their own results",
         ],
     )
 
     return page_layout(
         _page_header(
-            _PLAY_ICON,
+            _LINK_ICON,
             TEAL_BG, "rgba(20,184,166,0.2)",
             "Roadmap Feature",
             "Course Integration",
         ),
         rx.text(
-            "Bring the accelerator's full curriculum onto EvalBot. "
-            "Founders work through video lectures at their own pace, complete interactive worksheets, "
-            "and upload supporting documents — all feeding directly into the evaluation pipeline.",
+            "Rather than hosting the curriculum directly, AltaLab connects to the Evolve platform via API. "
+            "Everything completed on Evolve — modules, bot evaluations, student progress — is imported "
+            "automatically, so you run the EvalBot and keep the full overview without leaving AltaLab.",
             style={"fontSize": "15px", "color": TEXT_2, "lineHeight": "1.6",
-                   "maxWidth": "680px", "marginBottom": "32px"},
+                   "maxWidth": "700px", "marginBottom": "32px"},
         ),
         journey_strip,
         rx.hstack(
-            module_sidebar,
-            active_module,
+            sync_panel,
+            bot_panel,
             spacing="5",
             align="start",
             style={"marginBottom": "28px"},
         ),
         rx.box(
-            feat_video,
-            feat_forms,
-            feat_upload,
-            feat_pipeline,
+            feat_sync,
+            feat_bot,
+            feat_material,
+            feat_overview,
             style={"display": "grid", "gridTemplateColumns": "1fr 1fr", "gap": "16px"},
         ),
     )
