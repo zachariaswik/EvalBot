@@ -61,11 +61,53 @@ def test_roadmap_page_compiles():
     assert isinstance(c, rx.Component)
 
 
+def test_analyst_profiles_page_compiles():
+    from frontend.pages.roadmap_detail import analyst_profiles_page
+    c = analyst_profiles_page()
+    assert isinstance(c, rx.Component)
+
+
+def test_deal_flow_page_compiles():
+    from frontend.pages.roadmap_detail import deal_flow_page
+    c = deal_flow_page()
+    assert isinstance(c, rx.Component)
+
+
+def test_portfolio_tracking_page_compiles():
+    from frontend.pages.roadmap_detail import portfolio_tracking_page
+    c = portfolio_tracking_page()
+    assert isinstance(c, rx.Component)
+
+
+def test_automated_reports_page_compiles():
+    from frontend.pages.roadmap_detail import automated_reports_page
+    c = automated_reports_page()
+    assert isinstance(c, rx.Component)
+
+
+def test_partner_api_page_compiles():
+    from frontend.pages.roadmap_detail import partner_api_page
+    c = partner_api_page()
+    assert isinstance(c, rx.Component)
+
+
+def test_cohort_analytics_page_compiles():
+    from frontend.pages.roadmap_detail import cohort_analytics_page
+    c = cohort_analytics_page()
+    assert isinstance(c, rx.Component)
+
+
+def test_founder_portal_page_compiles():
+    from frontend.pages.roadmap_detail import founder_portal_page
+    c = founder_portal_page()
+    assert isinstance(c, rx.Component)
+
+
 # ── Route registration ────────────────────────────────────────────────────────
 
 
 def test_app_routes_registered():
-    """All 5 pages must be registered in frontend/frontend.py."""
+    """All 11 pages must be registered in frontend/frontend.py."""
     from frontend.frontend import app
 
     # Reflex stores "/" as "index" and strips leading slashes from other routes
@@ -75,6 +117,13 @@ def test_app_routes_registered():
     assert "batch/[batch_id]/[startup_name]" in routes
     assert "run" in routes
     assert "roadmap" in routes
+    assert "roadmap/analyst-profiles" in routes
+    assert "roadmap/deal-flow-pipeline" in routes
+    assert "roadmap/portfolio-tracking" in routes
+    assert "roadmap/automated-reports" in routes
+    assert "roadmap/partner-api" in routes
+    assert "roadmap/cohort-analytics" in routes
+    assert "roadmap/founder-portal" in routes
 
 
 # ── State var conflict checks ─────────────────────────────────────────────────

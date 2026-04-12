@@ -32,6 +32,15 @@ from frontend.pages.batch import batch_page
 from frontend.pages.startup import startup_page
 from frontend.pages.run import run_page
 from frontend.pages.roadmap import roadmap_page
+from frontend.pages.roadmap_detail import (
+    analyst_profiles_page,
+    deal_flow_page,
+    portfolio_tracking_page,
+    automated_reports_page,
+    partner_api_page,
+    cohort_analytics_page,
+    founder_portal_page,
+)
 from frontend.state.dashboard import DashboardState
 from frontend.state.batch import BatchState
 from frontend.state.startup import StartupState
@@ -129,3 +138,11 @@ app.add_page(
     route="/roadmap",
     title="Roadmap — EvalBot",
 )
+
+app.add_page(analyst_profiles_page, route="/roadmap/analyst-profiles", title="Analyst Profiles — EvalBot")
+app.add_page(deal_flow_page, route="/roadmap/deal-flow-pipeline", title="Deal Flow Pipeline — EvalBot")
+app.add_page(portfolio_tracking_page, route="/roadmap/portfolio-tracking", title="Portfolio Tracking — EvalBot")
+app.add_page(automated_reports_page, route="/roadmap/automated-reports", title="Automated Reports — EvalBot")
+app.add_page(partner_api_page, route="/roadmap/partner-api", title="Partner API — EvalBot")
+app.add_page(cohort_analytics_page, route="/roadmap/cohort-analytics", title="Cohort Analytics — EvalBot")
+app.add_page(founder_portal_page, route="/roadmap/founder-portal", title="Founder Portal — EvalBot")
