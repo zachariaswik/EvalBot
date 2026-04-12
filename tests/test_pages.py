@@ -103,11 +103,23 @@ def test_founder_portal_page_compiles():
     assert isinstance(c, rx.Component)
 
 
+def test_platform_features_page_compiles():
+    from frontend.pages.roadmap_detail import platform_features_page
+    c = platform_features_page()
+    assert isinstance(c, rx.Component)
+
+
+def test_course_integration_page_compiles():
+    from frontend.pages.roadmap_detail import course_integration_page
+    c = course_integration_page()
+    assert isinstance(c, rx.Component)
+
+
 # ── Route registration ────────────────────────────────────────────────────────
 
 
 def test_app_routes_registered():
-    """All 11 pages must be registered in frontend/frontend.py."""
+    """All 14 pages must be registered in frontend/frontend.py."""
     from frontend.frontend import app
 
     # Reflex stores "/" as "index" and strips leading slashes from other routes
@@ -124,6 +136,8 @@ def test_app_routes_registered():
     assert "roadmap/partner-api" in routes
     assert "roadmap/cohort-analytics" in routes
     assert "roadmap/founder-portal" in routes
+    assert "roadmap/platform" in routes
+    assert "roadmap/course-integration" in routes
 
 
 # ── State var conflict checks ─────────────────────────────────────────────────

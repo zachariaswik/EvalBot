@@ -40,6 +40,8 @@ from frontend.pages.roadmap_detail import (
     partner_api_page,
     cohort_analytics_page,
     founder_portal_page,
+    platform_features_page,
+    course_integration_page,
 )
 from frontend.state.dashboard import DashboardState
 from frontend.state.batch import BatchState
@@ -146,3 +148,5 @@ app.add_page(automated_reports_page, route="/roadmap/automated-reports", title="
 app.add_page(partner_api_page, route="/roadmap/partner-api", title="Partner API — EvalBot")
 app.add_page(cohort_analytics_page, route="/roadmap/cohort-analytics", title="Cohort Analytics — EvalBot")
 app.add_page(founder_portal_page, route="/roadmap/founder-portal", title="Founder Portal — EvalBot")
+app.add_page(platform_features_page, route="/roadmap/platform", title="Potential Platform Upgrades — EvalBot")
+app.add_page(course_integration_page, route="/roadmap/course-integration", title="Course Integration — EvalBot")

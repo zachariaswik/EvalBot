@@ -1458,3 +1458,488 @@ def founder_portal_page() -> rx.Component:  # noqa: C901
         access_strip,
     )
 
+
+# ── Page 8: Course Integration ────────────────────────────────────────────────
+
+def course_integration_page() -> rx.Component:
+    """Course Integration — host the full accelerator curriculum on-platform."""
+
+    _PLAY_ICON = (
+        '<svg width="22" height="22" viewBox="0 0 22 22" fill="none">'
+        '<rect x="1" y="3" width="20" height="16" rx="3" stroke="#0d9488" stroke-width="1.5"/>'
+        '<polygon points="9,9 9,15 15,12" fill="#0d9488"/>'
+        '</svg>'
+    )
+    _CHK = (
+        '<svg width="12" height="12" viewBox="0 0 12 12" fill="none">'
+        '<circle cx="6" cy="6" r="5.5" fill="#d1fae5"/>'
+        '<path d="M3.5 6l2 2 3-3.5" stroke="#0a7c52" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>'
+        '</svg>'
+    )
+    _PLY = (
+        '<svg width="12" height="12" viewBox="0 0 12 12" fill="none">'
+        '<circle cx="6" cy="6" r="5.5" fill="#ccfbf1"/>'
+        '<polygon points="5,3.5 5,8.5 9.5,6" fill="#0d9488"/>'
+        '</svg>'
+    )
+    _LCK = (
+        '<svg width="12" height="12" viewBox="0 0 12 12" fill="none">'
+        '<rect x="2.5" y="5.5" width="7" height="5" rx="1" stroke="#aebdd0" stroke-width="1"/>'
+        '<path d="M4 5.5V4a2 2 0 014 0v1.5" stroke="#aebdd0" stroke-width="1"/>'
+        '</svg>'
+    )
+
+    # ── Journey strip ──────────────────────────────────────────────────────────
+
+    def _step(num: str, label: str, color: str, bg: str) -> rx.Component:
+        return rx.vstack(
+            rx.box(
+                rx.text(num, style={"fontSize": "12px", "fontWeight": "800", "color": color}),
+                style={
+                    "width": "32px", "height": "32px", "borderRadius": "50%",
+                    "background": bg, "border": f"1.5px solid {color}",
+                    "display": "flex", "alignItems": "center", "justifyContent": "center",
+                },
+            ),
+            rx.text(label, style={"fontSize": "11px", "fontWeight": "600", "color": TEXT_2,
+                                  "textAlign": "center", "maxWidth": "72px"}),
+            spacing="2",
+            align="center",
+        )
+
+    journey_strip = rx.box(
+        rx.hstack(
+            _step("1", "Enroll", TEAL, TEAL_BG),
+            rx.box(style={"flex": "1", "height": "1.5px", "marginTop": "-18px",
+                          "background": f"linear-gradient(90deg,{TEAL},{GOLD})"}),
+            _step("2", "Watch Lectures", GOLD, GOLD_BG),
+            rx.box(style={"flex": "1", "height": "1.5px", "marginTop": "-18px",
+                          "background": f"linear-gradient(90deg,{GOLD},{BLUE})"}),
+            _step("3", "Complete Forms", BLUE, BLUE_BG),
+            rx.box(style={"flex": "1", "height": "1.5px", "marginTop": "-18px",
+                          "background": f"linear-gradient(90deg,{BLUE},{PURPLE})"}),
+            _step("4", "Upload Docs", PURPLE, PURPLE_BG),
+            rx.box(style={"flex": "1", "height": "1.5px", "marginTop": "-18px",
+                          "background": f"linear-gradient(90deg,{PURPLE},{GREEN})"}),
+            _step("5", "EvalBot Runs", GREEN, GREEN_BG),
+            align="center",
+            spacing="0",
+        ),
+        style={
+            "background": SURFACE,
+            "border": f"1px solid {BORDER}",
+            "borderRadius": "12px",
+            "padding": "28px 36px",
+            "marginBottom": "28px",
+            "boxShadow": "0 2px 8px rgba(12,24,41,0.04)",
+        },
+    )
+
+    # ── Course mockup (sidebar + active module panel) ─────────────────────────
+
+    def _mod_row(icon_html: str, label: str, sub: str, accent: str, bg: str) -> rx.Component:
+        return rx.hstack(
+            rx.html(icon_html),
+            rx.vstack(
+                rx.text(label, style={"fontSize": "12px", "fontWeight": "700", "color": TEXT, "lineHeight": "1.2"}),
+                rx.text(sub, style={"fontSize": "10px", "color": accent, "fontWeight": "600"}),
+                spacing="0",
+                align="start",
+            ),
+            spacing="2",
+            align="center",
+            style={"padding": "7px 10px", "background": bg, "borderRadius": "6px", "marginBottom": "3px"},
+        )
+
+    module_sidebar = rx.box(
+        rx.text("Course Modules", style={"fontSize": "10px", "fontWeight": "700", "color": TEXT_3,
+                                         "letterSpacing": "0.08em", "textTransform": "uppercase",
+                                         "marginBottom": "10px"}),
+        rx.hstack(
+            rx.box(style={"width": "44px", "height": "4px", "borderRadius": "2px", "background": TEAL, "flexShrink": "0"}),
+            rx.box(style={"flex": "1", "height": "4px", "borderRadius": "2px", "background": "#e5ecf7"}),
+            spacing="0",
+            style={"marginBottom": "4px"},
+        ),
+        rx.hstack(
+            rx.text("Module 3 of 8", style={"fontSize": "10px", "color": TEXT_3, "fontWeight": "600"}),
+            rx.text("38%", style={"fontSize": "10px", "color": TEAL, "fontWeight": "700",
+                                  "fontFamily": "'Courier New', monospace"}),
+            justify="between",
+            width="100%",
+            style={"marginBottom": "12px"},
+        ),
+        _mod_row(_CHK, "01 · Introduction",         "Completed",   GREEN,  "#f0fdf6"),
+        _mod_row(_CHK, "02 · Market Sizing",         "Completed",   GREEN,  "#f0fdf6"),
+        _mod_row(_PLY, "03 · Business Model",        "In progress", TEAL,   "#f0fafa"),
+        _mod_row(_LCK, "04 · Financials",            "Locked",      TEXT_3, SURFACE_2),
+        _mod_row(_LCK, "05 · GTM Strategy",          "Locked",      TEXT_3, SURFACE_2),
+        _mod_row(_LCK, "06 · Team & Execution",      "Locked",      TEXT_3, SURFACE_2),
+        _mod_row(_LCK, "07 · Pitch & Storytelling",  "Locked",      TEXT_3, SURFACE_2),
+        _mod_row(_LCK, "08 · Demo Day Prep",         "Locked",      TEXT_3, SURFACE_2),
+        style={
+            "background": SURFACE,
+            "border": f"1px solid {BORDER}",
+            "borderRadius": "12px",
+            "padding": "20px",
+            "flex": "1",
+            "minWidth": "0",
+            "boxShadow": "0 2px 8px rgba(12,24,41,0.04)",
+        },
+    )
+
+    active_module = rx.box(
+        rx.text("Module 03 · Business Model",
+                style={"fontSize": "13px", "fontWeight": "800", "color": TEXT,
+                       "letterSpacing": "-0.01em", "marginBottom": "12px"}),
+        # Video player
+        rx.box(
+            rx.vstack(
+                rx.html('<svg width="36" height="36" viewBox="0 0 36 36" fill="none"><circle cx="18" cy="18" r="17" stroke="#0d9488" stroke-width="1.5" opacity="0.3"/><polygon points="15,12 15,24 25,18" fill="#0d9488" opacity="0.6"/></svg>'),
+                rx.text("Lecture: Business Model Canvas",
+                        style={"fontSize": "12px", "color": "#7aabb4", "fontWeight": "600"}),
+                rx.text("24:30", style={"fontFamily": "'Courier New', monospace",
+                                        "fontSize": "10px", "color": "#4a7a84"}),
+                spacing="2",
+                align="center",
+            ),
+            style={
+                "background": "#0d1a2e",
+                "borderRadius": "8px",
+                "height": "100px",
+                "display": "flex", "alignItems": "center", "justifyContent": "center",
+                "marginBottom": "14px",
+            },
+        ),
+        # Worksheet
+        rx.text("Module Worksheet", style={"fontSize": "10px", "fontWeight": "700", "color": TEXT_3,
+                                           "letterSpacing": "0.06em", "textTransform": "uppercase",
+                                           "marginBottom": "8px"}),
+        rx.vstack(
+            rx.box(
+                rx.text("Describe your revenue model",
+                        style={"fontSize": "10px", "color": TEXT_3, "marginBottom": "4px"}),
+                rx.box(style={"height": "28px", "background": SURFACE_2, "border": f"1px solid {BORDER}", "borderRadius": "4px"}),
+            ),
+            rx.box(
+                rx.text("Primary customer segment",
+                        style={"fontSize": "10px", "color": TEXT_3, "marginBottom": "4px"}),
+                rx.box(style={"height": "22px", "background": SURFACE_2, "border": f"1px solid {BORDER}", "borderRadius": "4px"}),
+            ),
+            spacing="3",
+            style={"marginBottom": "12px"},
+        ),
+        # Upload CTA
+        rx.box(
+            rx.hstack(
+                rx.html('<svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M5.5 8.5V2.5m0 0L3 5m2.5-2.5L8 5" stroke="#1b48c4" stroke-width="1.2" stroke-linecap="round"/></svg>'),
+                rx.text("Upload pitch deck (required to continue)",
+                        style={"fontSize": "10px", "color": BLUE, "fontWeight": "600"}),
+                spacing="1",
+                align="center",
+            ),
+            style={"padding": "6px 10px", "background": BLUE_BG,
+                   "border": "1px solid rgba(27,72,196,0.15)", "borderRadius": "5px"},
+        ),
+        style={
+            "background": SURFACE,
+            "border": f"1px solid {BORDER}",
+            "borderRadius": "12px",
+            "padding": "20px",
+            "flex": "2",
+            "minWidth": "0",
+            "boxShadow": "0 2px 8px rgba(12,24,41,0.04)",
+        },
+    )
+
+    # ── Feature breakdown cards ────────────────────────────────────────────────
+
+    def _feat(icon_html: str, icon_bg: str, icon_border: str, accent: str,
+              title: str, bullets: list[str]) -> rx.Component:
+        return rx.box(
+            rx.hstack(
+                rx.box(
+                    rx.html(icon_html),
+                    style={
+                        "width": "36px", "height": "36px",
+                        "background": icon_bg, "border": f"1px solid {icon_border}",
+                        "borderRadius": "8px",
+                        "display": "flex", "alignItems": "center", "justifyContent": "center",
+                        "flexShrink": "0",
+                    },
+                ),
+                rx.text(title, style={"fontSize": "14px", "fontWeight": "800", "color": TEXT,
+                                      "letterSpacing": "-0.01em"}),
+                spacing="3",
+                align="center",
+                style={"marginBottom": "14px"},
+            ),
+            rx.vstack(
+                *[
+                    rx.hstack(
+                        rx.box(style={"width": "5px", "height": "5px", "borderRadius": "50%",
+                                      "background": accent, "flexShrink": "0", "marginTop": "5px"}),
+                        rx.text(b, style={"fontSize": "12px", "color": TEXT_2, "lineHeight": "1.55"}),
+                        spacing="2",
+                        align="start",
+                    )
+                    for b in bullets
+                ],
+                spacing="2",
+            ),
+            style={
+                "background": SURFACE,
+                "border": f"1px solid {BORDER}",
+                "borderRadius": "12px",
+                "padding": "20px 22px",
+                "boxShadow": "0 2px 8px rgba(12,24,41,0.04)",
+            },
+        )
+
+    feat_video = _feat(
+        '<svg width="18" height="18" viewBox="0 0 20 20" fill="none"><rect x="1" y="3" width="18" height="14" rx="2.5" stroke="#0d9488" stroke-width="1.5"/><polygon points="8.5,8 8.5,13.5 14.5,10.7" fill="#0d9488"/></svg>',
+        TEAL_BG, "rgba(20,184,166,0.15)", TEAL,
+        "Self-Paced Video Library",
+        [
+            "Pre-recorded lectures — no scheduling, no live sessions",
+            "Each module unlocks after the prior one is completed",
+            "Resume from where you left off, on any device",
+            "Progress saved per founder account",
+        ],
+    )
+    feat_forms = _feat(
+        '<svg width="18" height="18" viewBox="0 0 20 20" fill="none"><rect x="2" y="2" width="16" height="16" rx="2.5" stroke="#a85800" stroke-width="1.5"/><line x1="6" y1="7" x2="14" y2="7" stroke="#a85800" stroke-width="1.5" stroke-linecap="round"/><line x1="6" y1="10.5" x2="14" y2="10.5" stroke="#a85800" stroke-width="1.5" stroke-linecap="round"/><line x1="6" y1="14" x2="10" y2="14" stroke="#a85800" stroke-width="1.5" stroke-linecap="round"/></svg>',
+        GOLD_BG, "rgba(168,88,0,0.15)", GOLD,
+        "Interactive Module Worksheets",
+        [
+            "Structured forms per module: market sizing, BMC, financials, GTM",
+            "Free-text, dropdowns, and numeric input fields",
+            "Data validates before the next module unlocks",
+            "All responses tied to the founder's company profile",
+        ],
+    )
+    feat_upload = _feat(
+        '<svg width="18" height="18" viewBox="0 0 20 20" fill="none"><path d="M10 14V4m0 0L7 7m3-3l3 3" stroke="#1b48c4" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 16h12" stroke="#1b48c4" stroke-width="1.5" stroke-linecap="round"/></svg>',
+        BLUE_BG, "rgba(27,72,196,0.15)", BLUE,
+        "Per-Stage Document Uploads",
+        [
+            "Upload pitch deck, financial model, and team bios per stage",
+            "Accepted formats: PDF, DOCX, TXT, MD",
+            "Required uploads gate module progression",
+            "Versioned — new uploads replace old without losing history",
+        ],
+    )
+    feat_pipeline = _feat(
+        '<svg width="18" height="18" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="3" fill="#0a7c52" opacity="0.2"/><circle cx="10" cy="10" r="1.5" fill="#0a7c52"/><path d="M10 2v3M10 15v3M2 10h3M15 10h3" stroke="#0a7c52" stroke-width="1.5" stroke-linecap="round"/><path d="M4.9 4.9l2.2 2.2M12.9 12.9l2.2 2.2M4.9 15.1l2.2-2.2M12.9 7.1l2.2-2.2" stroke="#0a7c52" stroke-width="1" stroke-linecap="round" opacity="0.5"/></svg>',
+        GREEN_BG, "rgba(10,124,82,0.15)", GREEN,
+        "EvalBot Pipeline Integration",
+        [
+            "On completion, all worksheets and uploads auto-feed the 7-agent pipeline",
+            "Same evaluation flow as a standard batch run",
+            "Founders see their own score and verdict — admins see all",
+            "Cohort comparison unlocks after evaluation completes",
+        ],
+    )
+
+    return page_layout(
+        _page_header(
+            _PLAY_ICON,
+            TEAL_BG, "rgba(20,184,166,0.2)",
+            "Roadmap Feature",
+            "Course Integration",
+        ),
+        rx.text(
+            "Bring the accelerator's full curriculum onto EvalBot. "
+            "Founders work through video lectures at their own pace, complete interactive worksheets, "
+            "and upload supporting documents — all feeding directly into the evaluation pipeline.",
+            style={"fontSize": "15px", "color": TEXT_2, "lineHeight": "1.6",
+                   "maxWidth": "680px", "marginBottom": "32px"},
+        ),
+        journey_strip,
+        rx.hstack(
+            module_sidebar,
+            active_module,
+            spacing="5",
+            align="start",
+            style={"marginBottom": "28px"},
+        ),
+        rx.box(
+            feat_video,
+            feat_forms,
+            feat_upload,
+            feat_pipeline,
+            style={"display": "grid", "gridTemplateColumns": "1fr 1fr", "gap": "16px"},
+        ),
+    )
+
+
+# ── Page 9: Potential Platform Upgrades (overview of 6 platform features) ──────
+
+def platform_features_page() -> rx.Component:
+    """Overview page listing all 6 platform-suite features."""
+
+    _GRID_ICON = (
+        '<svg width="22" height="22" viewBox="0 0 22 22" fill="none">'
+        '<rect x="2" y="2" width="8" height="8" rx="2" stroke="#1b48c4" stroke-width="1.5"/>'
+        '<rect x="12" y="2" width="8" height="8" rx="2" stroke="#1b48c4" stroke-width="1.5"/>'
+        '<rect x="2" y="12" width="8" height="8" rx="2" stroke="#1b48c4" stroke-width="1.5"/>'
+        '<rect x="12" y="12" width="8" height="8" rx="2" stroke="#1b48c4" stroke-width="1.5"/>'
+        '</svg>'
+    )
+
+    _FEATURES = [
+        (
+            "01",
+            '<svg width="18" height="18" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="7" r="3.5" stroke="#1b48c4" stroke-width="1.5"/><path d="M3 18c0-3.3 3.1-6 7-6s7 2.7 7 6" stroke="#1b48c4" stroke-width="1.5" stroke-linecap="round"/></svg>',
+            BLUE_BG, "rgba(27,72,196,0.15)", BLUE,
+            "Analyst Profiles",
+            "Per-analyst accounts with eval history, avg score, sourcing stats, and a team leaderboard.",
+            "/roadmap/analyst-profiles",
+        ),
+        (
+            "02",
+            '<svg width="18" height="18" viewBox="0 0 20 20" fill="none"><rect x="1.5" y="4" width="4" height="12" rx="1" stroke="#a85800" stroke-width="1.5"/><rect x="8" y="6" width="4" height="10" rx="1" stroke="#a85800" stroke-width="1.5"/><rect x="14.5" y="2" width="4" height="14" rx="1" stroke="#a85800" stroke-width="1.5"/></svg>',
+            GOLD_BG, "rgba(168,88,0,0.15)", GOLD,
+            "Deal Flow Pipeline",
+            "Kanban board moving startups from Submitted → Shortlisted → Due Diligence → Invested.",
+            "/roadmap/deal-flow-pipeline",
+        ),
+        (
+            "03",
+            '<svg width="18" height="18" viewBox="0 0 20 20" fill="none"><polyline points="2,16 6.5,9.5 10.5,12.5 18,5" stroke="#0a7c52" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><polyline points="13,5 18,5 18,10" stroke="#0a7c52" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+            GREEN_BG, "rgba(10,124,82,0.15)", GREEN,
+            "Portfolio Tracking",
+            "Track invested startups post-close. Trigger quarterly re-evaluations and surface early warning signals.",
+            "/roadmap/portfolio-tracking",
+        ),
+        (
+            "04",
+            '<svg width="18" height="18" viewBox="0 0 20 20" fill="none"><rect x="3.5" y="1.5" width="13" height="17" rx="2" stroke="#7c3aed" stroke-width="1.5"/><line x1="7" y1="7" x2="13" y2="7" stroke="#7c3aed" stroke-width="1.5" stroke-linecap="round"/><line x1="7" y1="10" x2="13" y2="10" stroke="#7c3aed" stroke-width="1.5" stroke-linecap="round"/><line x1="7" y1="13" x2="11" y2="13" stroke="#7c3aed" stroke-width="1.5" stroke-linecap="round"/></svg>',
+            PURPLE_BG, "rgba(147,51,234,0.15)", PURPLE,
+            "Automated Reports",
+            "One-click PDF/email export of a full batch. Schedule weekly LP delivery — no manual formatting.",
+            "/roadmap/automated-reports",
+        ),
+        (
+            "05",
+            '<svg width="18" height="18" viewBox="0 0 20 20" fill="none"><path d="M8 6H4a2 2 0 00-2 2v6a2 2 0 002 2h8a2 2 0 002-2v-4" stroke="#0d9488" stroke-width="1.5" stroke-linecap="round"/><rect x="9" y="3" width="9" height="9" rx="2" stroke="#0d9488" stroke-width="1.5"/><line x1="12" y1="6" x2="15" y2="6" stroke="#0d9488" stroke-width="1.2" stroke-linecap="round"/><line x1="12" y1="8.5" x2="15" y2="8.5" stroke="#0d9488" stroke-width="1.2" stroke-linecap="round"/></svg>',
+            TEAL_BG, "rgba(20,184,166,0.15)", TEAL,
+            "Partner API",
+            "Founders submit pitches via REST API. Scores and verdicts returned automatically — no manual intake.",
+            "/roadmap/partner-api",
+        ),
+        (
+            "06",
+            '<svg width="18" height="18" viewBox="0 0 20 20" fill="none"><rect x="1.5" y="13" width="3.5" height="5.5" rx="0.5" stroke="#a85800" stroke-width="1.5"/><rect x="8" y="9" width="3.5" height="9.5" rx="0.5" stroke="#a85800" stroke-width="1.5"/><rect x="14.5" y="5" width="3.5" height="13.5" rx="0.5" stroke="#a85800" stroke-width="1.5"/></svg>',
+            GOLD_BG, "rgba(168,88,0,0.15)", GOLD,
+            "Cohort Analytics",
+            "Cross-batch trend charts: avg score over time, verdict distribution shifts, sector concentration.",
+            "/roadmap/cohort-analytics",
+        ),
+    ]
+
+    def _feature_card(
+        num: str,
+        icon_html: str,
+        icon_bg: str,
+        icon_border: str,
+        accent: str,
+        title: str,
+        desc: str,
+        href: str,
+    ) -> rx.Component:
+        return rx.link(
+            rx.box(
+                rx.hstack(
+                    rx.box(
+                        rx.html(icon_html),
+                        style={
+                            "width": "42px",
+                            "height": "42px",
+                            "background": icon_bg,
+                            "border": f"1px solid {icon_border}",
+                            "borderRadius": "10px",
+                            "display": "flex",
+                            "alignItems": "center",
+                            "justifyContent": "center",
+                            "flexShrink": "0",
+                        },
+                    ),
+                    rx.vstack(
+                        rx.hstack(
+                            rx.text(
+                                num,
+                                style={"fontSize": "10px", "fontWeight": "700", "color": accent,
+                                       "fontFamily": "'Courier New', monospace", "letterSpacing": "0.04em"},
+                            ),
+                            rx.text(
+                                title,
+                                style={"fontSize": "15px", "fontWeight": "800", "color": TEXT,
+                                       "letterSpacing": "-0.01em"},
+                            ),
+                            spacing="2",
+                            align="center",
+                        ),
+                        rx.text(
+                            desc,
+                            style={"fontSize": "13px", "color": TEXT_3, "lineHeight": "1.65"},
+                        ),
+                        spacing="1",
+                        align="start",
+                    ),
+                    spacing="4",
+                    align="start",
+                    width="100%",
+                ),
+                rx.hstack(
+                    rx.text(
+                        "View details →",
+                        style={"fontSize": "11px", "fontWeight": "600", "color": accent},
+                    ),
+                    justify="end",
+                    style={"marginTop": "16px"},
+                ),
+                style={
+                    "background": SURFACE,
+                    "border": f"1px solid {BORDER}",
+                    "borderRadius": "12px",
+                    "padding": "22px 24px",
+                    "boxShadow": "0 2px 8px rgba(12,24,41,0.04)",
+                    "transition": "box-shadow 0.2s, border-color 0.2s, transform 0.15s",
+                    "_hover": {
+                        "boxShadow": "0 6px 24px rgba(27,72,196,0.09)",
+                        "borderColor": "#c2cfe4",
+                        "transform": "translateY(-1px)",
+                    },
+                },
+            ),
+            href=href,
+            style={"textDecoration": "none", "display": "block"},
+        )
+
+    return page_layout(
+        _page_header(
+            _GRID_ICON,
+            BLUE_BG, "rgba(27,72,196,0.15)",
+            "Roadmap Feature",
+            "Potential Platform Upgrades",
+        ),
+        rx.text(
+            "Six potential upgrades designed to take EvalBot from a single-user tool to a "
+            "full-team investment platform — with workflow management, LP reporting, and open API access.",
+            style={"fontSize": "15px", "color": TEXT_2, "lineHeight": "1.6",
+                   "maxWidth": "680px", "marginBottom": "36px"},
+        ),
+        rx.box(
+            *[
+                _feature_card(num, icon, ibg, iborder, accent, title, desc, href)
+                for num, icon, ibg, iborder, accent, title, desc, href in _FEATURES
+            ],
+            style={
+                "display": "grid",
+                "gridTemplateColumns": "1fr 1fr",
+                "gap": "16px",
+            },
+        ),
+    )
+
