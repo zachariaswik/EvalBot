@@ -1,4 +1,4 @@
-"""EvalBot Reflex app — entry point.
+"""AltaLab Reflex app — entry point.
 
 Run locally:
     source .venv313/bin/activate
@@ -111,42 +111,42 @@ app.add_page(
     dashboard_page,
     route="/",
     on_load=DashboardState.load_data,
-    title="EvalBot — Dashboard",
+    title="AltaLab — Dashboard",
 )
 
 app.add_page(
     batch_page,
     route="/batch/[batch_id]",
     on_load=BatchState.load_batch,
-    title="Batch — EvalBot",
+    title="Batch — AltaLab",
 )
 
 app.add_page(
     startup_page,
     route="/batch/[batch_id]/[startup_name]",
     on_load=StartupState.load_startup,
-    title="Startup — EvalBot",
+    title="Startup — AltaLab",
 )
 
 app.add_page(
     run_page,
     route="/run",
     on_load=RunState.load_staged,
-    title="Run Batch — EvalBot",
+    title="Run Batch — AltaLab",
 )
 
 app.add_page(
     roadmap_page,
     route="/roadmap",
-    title="Roadmap — EvalBot",
+    title="Roadmap — AltaLab",
 )
 
-app.add_page(analyst_profiles_page, route="/roadmap/analyst-profiles", title="Analyst Profiles — EvalBot")
-app.add_page(deal_flow_page, route="/roadmap/deal-flow-pipeline", title="Deal Flow Pipeline — EvalBot")
-app.add_page(portfolio_tracking_page, route="/roadmap/portfolio-tracking", title="Portfolio Tracking — EvalBot")
-app.add_page(automated_reports_page, route="/roadmap/automated-reports", title="Automated Reports — EvalBot")
-app.add_page(partner_api_page, route="/roadmap/partner-api", title="Partner API — EvalBot")
-app.add_page(cohort_analytics_page, route="/roadmap/cohort-analytics", title="Cohort Analytics — EvalBot")
-app.add_page(founder_portal_page, route="/roadmap/founder-portal", title="Founder Portal — EvalBot")
-app.add_page(platform_features_page, route="/roadmap/platform", title="Potential Platform Upgrades — EvalBot")
-app.add_page(course_integration_page, route="/roadmap/course-integration", title="Course Integration — EvalBot")
+app.add_page(analyst_profiles_page, route="/roadmap/analyst-profiles", title="Analyst Profiles — AltaLab")
+app.add_page(deal_flow_page, route="/roadmap/deal-flow-pipeline", title="Deal Flow Pipeline — AltaLab")
+app.add_page(portfolio_tracking_page, route="/roadmap/portfolio-tracking", title="Portfolio Tracking — AltaLab")
+app.add_page(automated_reports_page, route="/roadmap/automated-reports", title="Automated Reports — AltaLab")
+app.add_page(partner_api_page, route="/roadmap/partner-api", title="Partner API — AltaLab")
+app.add_page(cohort_analytics_page, route="/roadmap/cohort-analytics", title="Cohort Analytics — AltaLab")
+app.add_page(founder_portal_page, route="/roadmap/founder-portal", title="Founder Portal — AltaLab")
+app.add_page(platform_features_page, route="/roadmap/platform", title="Potential Platform Upgrades — AltaLab")
+app.add_page(course_integration_page, route="/roadmap/course-integration", title="Course Integration — AltaLab")

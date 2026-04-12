@@ -42,7 +42,7 @@ def navbar() -> rx.Component:
                     ),
                     rx.vstack(
                         rx.text(
-                            "EvalBot",
+                            "AltaLab",
                             style={
                                 "fontFamily": "'Georgia', serif",
                                 "fontSize": "19px",
@@ -53,7 +53,7 @@ def navbar() -> rx.Component:
                             },
                         ),
                         rx.text(
-                            "AI Venture Analyst",
+                            "Idea to Impact",
                             style={
                                 "fontSize": "9px",
                                 "fontWeight": "700",
@@ -148,67 +148,8 @@ def navbar() -> rx.Component:
     )
 
 
-def footer() -> rx.Component:
-    return rx.el.footer(
-        rx.box(
-            rx.hstack(
-                rx.hstack(
-                    rx.box(
-                        rx.text(
-                            "EB",
-                            style={
-                                "fontFamily": "'Georgia', serif",
-                                "fontSize": "9px",
-                                "fontWeight": "900",
-                                "color": "white",
-                                "lineHeight": "1",
-                            },
-                        ),
-                        style={
-                            "width": "22px",
-                            "height": "22px",
-                            "background": BLUE,
-                            "borderRadius": "5px",
-                            "display": "flex",
-                            "alignItems": "center",
-                            "justifyContent": "center",
-                        },
-                    ),
-                    rx.text(
-                        "EvalBot · Multi-Agent Venture Analysis",
-                        style={"fontSize": "13px", "color": "#7188a4", "fontWeight": "500"},
-                    ),
-                    spacing="2",
-                    align="center",
-                ),
-                rx.text(
-                    "Internal Tool",
-                    style={
-                        "fontSize": "12px",
-                        "color": TEXT_4,
-                        "fontWeight": "500",
-                        "letterSpacing": "0.06em",
-                        "textTransform": "uppercase",
-                    },
-                ),
-                justify="between",
-                width="100%",
-            ),
-            style={
-                "maxWidth": "1280px",
-                "margin": "0 auto",
-                "padding": "22px 32px",
-            },
-        ),
-        style={
-            "background": SURFACE,
-            "borderTop": f"1px solid {BORDER}",
-        },
-    )
-
-
 def page_layout(*children: rx.Component, **kwargs) -> rx.Component:
-    """Wrap a page with navbar, main content area, and footer."""
+    """Wrap a page with navbar and main content area."""
     return rx.vstack(
         navbar(),
         rx.box(
@@ -223,7 +164,6 @@ def page_layout(*children: rx.Component, **kwargs) -> rx.Component:
                 "zIndex": "1",
             },
         ),
-        footer(),
         spacing="0",
         min_height="100vh",
         style={

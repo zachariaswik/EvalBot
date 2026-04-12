@@ -28,27 +28,9 @@ BORDER_2 = "#c2cfe4"
 
 
 def rank_badge(idx: int) -> rx.Component:
-    return rx.cond(
-        idx == 0,
-        rx.box(
-            rx.text("1", style={"fontFamily": "'Georgia', serif", "fontSize": "11px", "fontWeight": "900", "color": "white", "lineHeight": "1"}),
-            style={"width": "26px", "height": "26px", "borderRadius": "50%", "background": BLUE, "display": "flex", "alignItems": "center", "justifyContent": "center"},
-        ),
-        rx.cond(
-            idx == 1,
-            rx.box(
-                rx.text("2", style={"fontFamily": "'Georgia', serif", "fontSize": "11px", "fontWeight": "900", "color": TEXT_2, "lineHeight": "1"}),
-                style={"width": "26px", "height": "26px", "borderRadius": "50%", "background": SURFACE_3, "border": f"1.5px solid {BORDER_2}", "display": "flex", "alignItems": "center", "justifyContent": "center"},
-            ),
-            rx.cond(
-                idx == 2,
-                rx.box(
-                    rx.text("3", style={"fontFamily": "'Georgia', serif", "fontSize": "11px", "fontWeight": "900", "color": GOLD, "lineHeight": "1"}),
-                    style={"width": "26px", "height": "26px", "borderRadius": "50%", "background": GOLD_BG, "border": "1.5px solid rgba(168,88,0,0.2)", "display": "flex", "alignItems": "center", "justifyContent": "center"},
-                ),
-                rx.text(str(idx + 1), style={"fontFamily": "'Courier New', monospace", "fontSize": "12px", "color": TEXT_4, "fontWeight": "500"}),
-            ),
-        ),
+    return rx.box(
+        rx.text((idx + 1).to(str), style={"fontFamily": "'Courier New', monospace", "fontSize": "12px", "color": TEXT, "fontWeight": "500"}),
+        style={"width": "26px", "height": "26px", "borderRadius": "50%", "background": GOLD_BG, "border": "1.5px solid rgba(168,88,0,0.2)", "display": "flex", "alignItems": "center", "justifyContent": "center"}
     )
 
 

@@ -239,30 +239,13 @@ def dashboard_page() -> rx.Component:
             style={"marginBottom": "44px"},
         ),
 
-        # ── Stats ──
-        rx.box(
-            rx.hstack(
-                stat_card("01", "01 / Startups evaluated", DashboardState.total_startups),
-                stat_card("02", "02 / Batches processed", DashboardState.total_batches),
-                stat_card("03", "03 / VC candidates (latest)", DashboardState.vc_percent, suffix="%", accent=GOLD_2),
-                spacing="0",
-                style={"display": "grid", "gridTemplateColumns": "repeat(3,1fr)", "gap": "1px", "background": BORDER},
-            ),
-            style={
-                "borderRadius": "14px",
-                "overflow": "hidden",
-                "marginBottom": "44px",
-                "boxShadow": "0 2px 12px rgba(12,24,41,0.06)",
-            },
-        ),
-
         # ── Latest batch highlight ──
         rx.cond(
             DashboardState.latest_batch_id != "",
             rx.box(
                 rx.hstack(
                     rx.hstack(
-                        section_marker("04 / Latest batch"),
+                        section_marker("Latest batch"),
                         rx.box(
                             rx.text(
                                 DashboardState.latest_batch_id,
@@ -322,7 +305,7 @@ def dashboard_page() -> rx.Component:
 
         # ── All batches ──
         rx.vstack(
-            section_marker("05 / All batches"),
+            section_marker("All batches"),
             rx.cond(
                 DashboardState.batches.length() > 0,
                 rx.box(
