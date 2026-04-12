@@ -92,6 +92,8 @@ class BatchState(rx.State):
     verdict_counts: dict[str, int] = {}
     shortlist: list[str] = []
     bar_chart_data: list[dict] = []
+    score_histogram: list[dict] = []
+    score_zones: list[dict] = []
     pie_chart_data: list[dict] = []
     verdict_distribution: list[dict] = []
     batch_sentiment: str = ""
@@ -180,6 +182,40 @@ class BatchState(rx.State):
         self.bar_chart_data = [
             {"name": s["name"], "score": s["score"]} for s in startup_scores
         ]
+
+        # Build score distribution histogram — trimmed to actual data range
+        bucket_counts = [0] * 10
+        for s in startup_scores:
+            bucket_counts[min(int(s["score"]) // 10, 9)] += 1
+
+        non_zero = [i for i, c in enumerate(bucket_counts) if c > 0]
+        lo, hi = (non_zero[0], non_zero[-1]) if non_zero else (0, 9)
+        trimmed = list(range(lo, hi + 1))
+        max_count = max(bucket_counts[i] for i in trimmed) or 1
+
+        self.score_histogram = [
+            {
+                "label": str(i * 10),
+                "count": bucket_counts[i],
+                "has_count": bucket_counts[i] > 0,
+                "height_px": round(bucket_counts[i] / max_count * 100),
+                "fill": "#0a7c52" if i >= 7 else ("#1b48c4" if i >= 5 else "#b91c1c"),
+            }
+            for i in trimmed
+        ]
+
+        # Zone descriptors — only zones present in the trimmed range
+        red = sum(1 for i in trimmed if i < 5)
+        blue = sum(1 for i in trimmed if 5 <= i < 7)
+        green = sum(1 for i in trimmed if i >= 7)
+        zones = []
+        if red:
+            zones.append({"flex": red, "label": "Reject zone", "hex": "#b91c1c", "bg": "rgba(185,28,28,0.05)"})
+        if blue:
+            zones.append({"flex": blue, "label": "Promising", "hex": "#1b48c4", "bg": "rgba(27,72,196,0.05)"})
+        if green:
+            zones.append({"flex": green, "label": "VC Candidate", "hex": "#0a7c52", "bg": "rgba(10,124,82,0.05)"})
+        self.score_zones = zones
         self.pie_chart_data = [
             {"name": k, "value": v} for k, v in verdict_counts.items()
         ]

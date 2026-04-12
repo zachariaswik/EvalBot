@@ -5,9 +5,128 @@ from __future__ import annotations
 import reflex as rx
 
 from frontend.components.badges import section_marker, verdict_badge, status_pill, score_bar
-from frontend.components.charts import bar_chart
 from frontend.components.navbar import page_layout
 from frontend.state.batch import BatchState
+
+
+def _score_histogram(data: rx.Var, zones: rx.Var) -> rx.Component:
+    """Score distribution histogram trimmed to actual data range.
+    Scales cleanly to any number of startups."""
+
+    def _bar(item: dict) -> rx.Component:
+        return rx.box(
+            rx.cond(
+                item["has_count"],
+                rx.text(
+                    item["count"].to(str),
+                    style={
+                        "fontSize": "9px",
+                        "color": item["fill"],
+                        "fontWeight": "700",
+                        "fontFamily": "'Courier New', monospace",
+                        "lineHeight": "1",
+                        "marginBottom": "3px",
+                    },
+                ),
+                rx.box(style={"height": "12px"}),
+            ),
+            rx.box(
+                style={
+                    "width": "68%",
+                    "height": rx.cond(
+                        item["has_count"],
+                        item["height_px"].to(str) + "px",
+                        "0px",
+                    ),
+                    "background": item["fill"],
+                    "borderRadius": "3px 3px 0 0",
+                    "opacity": "0.82",
+                }
+            ),
+            style={
+                "flex": "1",
+                "height": "100%",
+                "display": "flex",
+                "flexDirection": "column",
+                "alignItems": "center",
+                "justifyContent": "flex-end",
+            },
+        )
+
+    def _zone_label(zone: dict) -> rx.Component:
+        return rx.box(
+            rx.text(zone["label"], style={
+                "fontSize": "9px", "color": zone["hex"], "fontWeight": "700",
+                "letterSpacing": "0.05em", "textTransform": "uppercase", "opacity": "0.6",
+            }),
+            style={"flex": zone["flex"].to(str)},
+        )
+
+    def _zone_bg(zone: dict) -> rx.Component:
+        return rx.box(style={"flex": zone["flex"].to(str), "height": "100%", "background": zone["bg"]})
+
+    return rx.box(
+        # Zone labels (dynamically sized to match trimmed range)
+        rx.box(
+            rx.foreach(zones, _zone_label),
+            style={"display": "flex", "width": "100%", "marginBottom": "8px"},
+        ),
+        # Chart area
+        rx.box(
+            # Zone backgrounds
+            rx.box(
+                rx.foreach(zones, _zone_bg),
+                style={
+                    "display": "flex",
+                    "position": "absolute",
+                    "top": "0", "left": "0", "right": "0", "bottom": "0",
+                    "zIndex": "0",
+                    "borderRadius": "6px",
+                    "overflow": "hidden",
+                },
+            ),
+            # Bars
+            rx.box(
+                rx.foreach(data, _bar),
+                style={
+                    "display": "flex",
+                    "position": "absolute",
+                    "top": "0", "left": "0", "right": "0", "bottom": "0",
+                    "zIndex": "1",
+                    "alignItems": "flex-end",
+                    "padding": "0 6px",
+                    "gap": "3px",
+                },
+            ),
+            style={
+                "position": "relative",
+                "height": "115px",
+                "width": "100%",
+                "borderRadius": "6px",
+                "marginBottom": "4px",
+            },
+        ),
+        # Score axis labels
+        rx.box(
+            rx.foreach(
+                data,
+                lambda item: rx.box(
+                    rx.text(
+                        item["label"],
+                        style={
+                            "fontSize": "8px",
+                            "color": TEXT_4,
+                            "fontFamily": "'Courier New', monospace",
+                            "textAlign": "center",
+                        },
+                    ),
+                    style={"flex": "1", "display": "flex", "justifyContent": "center"},
+                ),
+            ),
+            style={"display": "flex", "width": "100%", "paddingTop": "4px"},
+        ),
+        style={"width": "100%"},
+    )
 
 BLUE = "#1b48c4"
 BLUE_2 = "#163a9e"
@@ -233,8 +352,8 @@ def batch_page() -> rx.Component:
         # Charts
         rx.hstack(
             rx.box(
-                section_marker("Score comparison"),
-                bar_chart(BatchState.bar_chart_data, height=155),
+                section_marker("Score distribution"),
+                _score_histogram(BatchState.score_histogram, BatchState.score_zones),
                 style={
                     "background": SURFACE,
                     "border": f"1px solid {BORDER}",
