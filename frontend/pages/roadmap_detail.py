@@ -973,245 +973,488 @@ def cohort_analytics_page() -> rx.Component:
     )
 
 
-# ── Page 7: Founder Portal ─────────────────────────────────────────────────────
+# ── Page 7: Founder Portal (phased roadmap) ───────────────────────────────────
 
-def founder_portal_page() -> rx.Component:
-    # Left panel: founder's own view (full access to their results)
-    founder_view = rx.vstack(
-        # Header: who is logged in
+def founder_portal_page() -> rx.Component:  # noqa: C901
+    # ── shared icon SVGs ──────────────────────────────────────────────────────
+    _CHECK = (
+        '<svg width="13" height="13" viewBox="0 0 12 12" fill="none">'
+        '<circle cx="6" cy="6" r="5.5" fill="#d1fae5"/>'
+        '<path d="M3.5 6l1.8 1.8L8.5 4.5" stroke="#0a7c52" stroke-width="1.3"'
+        ' stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    )
+    _CROSS = (
+        '<svg width="13" height="13" viewBox="0 0 12 12" fill="none">'
+        '<circle cx="6" cy="6" r="5.5" fill="#fee2e2"/>'
+        '<path d="M4 4l4 4M8 4l-4 4" stroke="#b91c1c" stroke-width="1.3"'
+        ' stroke-linecap="round"/></svg>'
+    )
+    _LOCK = (
+        '<svg width="13" height="13" viewBox="0 0 12 12" fill="none">'
+        '<rect x="2.5" y="5.5" width="7" height="5.5" rx="1.2" stroke="#aebdd0" stroke-width="1.1"/>'
+        '<path d="M4 5.5V4a2 2 0 014 0v1.5" stroke="#aebdd0" stroke-width="1.1"/></svg>'
+    )
+    _PDF_SVG = (
+        '<svg width="12" height="12" viewBox="0 0 14 14" fill="none">'
+        '<rect x="1" y="0.5" width="12" height="13" rx="1.5" stroke="#7188a4" stroke-width="1.1"/>'
+        '<line x1="3.5" y1="4.5" x2="10.5" y2="4.5" stroke="#7188a4" stroke-width="1"/>'
+        '<line x1="3.5" y1="6.5" x2="10.5" y2="6.5" stroke="#7188a4" stroke-width="1"/>'
+        '<line x1="3.5" y1="8.5" x2="8" y2="8.5" stroke="#7188a4" stroke-width="1"/></svg>'
+    )
+
+    # ── helper: capability row ────────────────────────────────────────────────
+    def _cap(text, icon_svg):
+        return rx.hstack(
+            rx.html(icon_svg),
+            rx.text(text, style={"fontSize": "12px", "color": TEXT_2, "lineHeight": "1.4"}),
+            spacing="2",
+            align="start",
+        )
+
+    # ── helper: phase badge ───────────────────────────────────────────────────
+    def _phase_badge(num, label, color, bg):
+        return rx.hstack(
+            rx.box(
+                rx.text(f"Phase {num}", style={"fontSize": "9px", "fontWeight": "800", "color": "white", "letterSpacing": "0.05em"}),
+                style={"padding": "2px 8px", "background": color, "borderRadius": "3px"},
+            ),
+            rx.text(label, style={"fontSize": "11px", "fontWeight": "700", "color": color}),
+            spacing="2",
+            align="center",
+        )
+
+    # ── helper: small file row for phase 3 mockup ────────────────────────────
+    def _file_row_sm(name, status, s_clr, s_bg):
+        return rx.hstack(
+            rx.html(_PDF_SVG),
+            rx.text(name, style={"fontSize": "11px", "fontWeight": "600", "color": TEXT, "flex": "1"}),
+            rx.box(
+                rx.text(status, style={"fontSize": "9px", "fontWeight": "700", "color": s_clr}),
+                style={"padding": "1px 6px", "background": s_bg, "borderRadius": "3px"},
+            ),
+            spacing="2",
+            align="center",
+            width="100%",
+        )
+
+    # ── Phase progression strip ───────────────────────────────────────────────
+    def _phase_dot(num, label, color):
+        return rx.vstack(
+            rx.box(
+                rx.text(str(num), style={"fontSize": "11px", "fontWeight": "800", "color": "white"}),
+                style={
+                    "width": "30px", "height": "30px", "borderRadius": "50%",
+                    "background": color,
+                    "display": "flex", "alignItems": "center", "justifyContent": "center",
+                },
+            ),
+            rx.text(label, style={
+                "fontSize": "10px", "fontWeight": "600", "color": color,
+                "textAlign": "center", "maxWidth": "82px",
+            }),
+            spacing="2",
+            align="center",
+        )
+
+    phase_strip = rx.box(
         rx.hstack(
-            rx.hstack(
-                rx.box(
-                    rx.text("A", style={"fontFamily": "'Georgia', serif", "fontSize": "14px", "fontWeight": "900", "color": "white"}),
-                    style={"width": "36px", "height": "36px", "borderRadius": "8px", "background": ROSE, "display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": "0"},
-                ),
-                rx.vstack(
-                    rx.text("Acme AI", style={"fontSize": "14px", "fontWeight": "700", "color": TEXT}),
-                    rx.text("Founder · acme@acme.io", style={"fontSize": "11px", "color": TEXT_3}),
-                    spacing="0",
-                    align="start",
-                ),
-                spacing="3",
-                align="center",
+            _phase_dot(1, "Accounts & Scores", BLUE),
+            rx.box(style={"flex": "1", "height": "2px", "background": f"linear-gradient(90deg, {BLUE}, {GREEN})", "marginBottom": "20px", "marginLeft": "4px", "marginRight": "4px"}),
+            _phase_dot(2, "Team Access", GREEN),
+            rx.box(style={"flex": "1", "height": "2px", "background": f"linear-gradient(90deg, {GREEN}, {GOLD})", "marginBottom": "20px", "marginLeft": "4px", "marginRight": "4px"}),
+            _phase_dot(3, "Document Submission", GOLD),
+            rx.box(style={"flex": "1", "height": "2px", "background": f"linear-gradient(90deg, {GOLD}, {PURPLE})", "marginBottom": "20px", "marginLeft": "4px", "marginRight": "4px"}),
+            _phase_dot(4, "Self-Service Runs", PURPLE),
+            align="center",
+            width="100%",
+        ),
+        style={
+            "padding": "24px 32px",
+            "background": SURFACE,
+            "border": f"1px solid {BORDER}",
+            "borderRadius": "10px",
+            "marginBottom": "32px",
+        },
+    )
+
+    # ── Phase 1 mockup: founder login + score card ────────────────────────────
+    phase1_mockup = rx.box(
+        rx.hstack(
+            rx.box(
+                rx.text("A", style={"fontSize": "11px", "fontWeight": "900", "color": "white", "fontFamily": "'Georgia', serif"}),
+                style={"width": "26px", "height": "26px", "borderRadius": "6px", "background": ROSE, "display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": "0"},
+            ),
+            rx.vstack(
+                rx.text("Acme AI", style={"fontSize": "12px", "fontWeight": "700", "color": TEXT}),
+                rx.text("founder@acme.io", style={"fontSize": "10px", "color": TEXT_3}),
+                spacing="0",
+                align="start",
             ),
             rx.box(
-                rx.text("Logged in", style={"fontSize": "10px", "fontWeight": "700", "color": GREEN}),
-                style={"padding": "3px 9px", "background": GREEN_BG, "border": "1px solid rgba(10,124,82,0.2)", "borderRadius": "4px"},
+                rx.text("Logged in", style={"fontSize": "9px", "fontWeight": "700", "color": GREEN}),
+                style={"padding": "2px 7px", "background": GREEN_BG, "borderRadius": "3px"},
             ),
             justify="between",
             align="center",
             width="100%",
+            style={"marginBottom": "14px"},
         ),
-        rx.box(style={"height": "1px", "background": BORDER, "margin": "16px 0"}),
-        # Score + verdict row
         rx.hstack(
             rx.vstack(
-                rx.text("74", style={"fontFamily": "'Georgia', serif", "fontSize": "36px", "fontWeight": "900", "color": BLUE, "lineHeight": "1"}),
-                rx.text("Your Score", style={"fontSize": "11px", "color": TEXT_3, "fontWeight": "600"}),
+                rx.text("74", style={"fontFamily": "'Georgia', serif", "fontSize": "26px", "fontWeight": "900", "color": BLUE, "lineHeight": "1"}),
+                rx.text("Score", style={"fontSize": "10px", "color": TEXT_3}),
                 spacing="1",
                 align="center",
             ),
-            rx.box(style={"width": "1px", "background": BORDER, "height": "50px"}),
+            rx.box(style={"width": "1px", "background": BORDER, "height": "36px"}),
             rx.vstack(
                 rx.box(
-                    rx.text("Promising", style={"fontSize": "12px", "fontWeight": "700", "color": "white"}),
-                    style={"padding": "4px 12px", "background": BLUE, "borderRadius": "5px"},
+                    rx.text("Promising", style={"fontSize": "11px", "fontWeight": "700", "color": "white"}),
+                    style={"padding": "3px 9px", "background": BLUE, "borderRadius": "4px"},
                 ),
-                rx.text("Verdict", style={"fontSize": "11px", "color": TEXT_3, "fontWeight": "600"}),
+                rx.text("Verdict", style={"fontSize": "10px", "color": TEXT_3}),
                 spacing="1",
                 align="center",
             ),
-            rx.box(style={"width": "1px", "background": BORDER, "height": "50px"}),
+            rx.box(style={"width": "1px", "background": BORDER, "height": "36px"}),
             rx.vstack(
-                rx.text("Jan 2025", style={"fontFamily": "'Courier New', monospace", "fontSize": "13px", "fontWeight": "700", "color": TEXT}),
-                rx.text("Last Eval", style={"fontSize": "11px", "color": TEXT_3, "fontWeight": "600"}),
+                rx.text("Jan '25", style={"fontFamily": "'Courier New', monospace", "fontSize": "11px", "fontWeight": "700", "color": TEXT}),
+                rx.text("Evaluated", style={"fontSize": "10px", "color": TEXT_3}),
                 spacing="1",
                 align="center",
             ),
             justify="between",
             width="100%",
-            style={"marginBottom": "18px"},
+            style={"marginBottom": "14px"},
         ),
-        # Key strengths (SWOT excerpt)
-        rx.text("Key Strengths", style={"fontSize": "11px", "fontWeight": "700", "color": TEXT_3, "letterSpacing": "0.06em", "textTransform": "uppercase", "marginBottom": "10px"}),
         rx.vstack(
             *[rx.hstack(
-                rx.box(style={"width": "5px", "height": "5px", "background": GREEN, "borderRadius": "50%", "flexShrink": "0", "marginTop": "5px"}),
-                rx.text(item, style={"fontSize": "12px", "color": TEXT_2, "lineHeight": "1.5"}),
+                rx.html(_LOCK),
+                rx.text(item, style={"fontSize": "11px", "color": TEXT_3}),
                 spacing="2",
+                align="center",
+                style={"padding": "5px 10px", "background": SURFACE_2, "border": f"1px solid {BORDER}", "borderRadius": "5px"},
+            ) for item in ["Rankings — admin only", "Other startups — hidden"]],
+            spacing="2",
+            align="start",
+            width="100%",
+        ),
+        style={"padding": "16px 18px", "background": SURFACE, "border": f"1px solid {BORDER}", "borderRadius": "9px"},
+    )
+
+    phase1 = rx.box(
+        _phase_badge(1, "Accounts & Score Visibility", BLUE, BLUE_BG),
+        rx.text(
+            "Founders receive a login. They can see their own startup's score, verdict, SWOT, and recommendations — nothing else.",
+            style={"fontSize": "13px", "color": TEXT_2, "lineHeight": "1.6", "margin": "10px 0 14px"},
+        ),
+        rx.vstack(
+            _cap("Create a founder account tied to their startup", _CHECK),
+            _cap("View their score, verdict, and SWOT analysis", _CHECK),
+            _cap("Read actionable recommendations from Agent 6", _CHECK),
+            _cap("See only their own startup — no comparative data", _CHECK),
+            rx.box(style={"height": "1px", "background": BORDER, "width": "100%"}),
+            _cap("Team sharing (Phase 2)", _LOCK),
+            _cap("Document submission (Phase 3)", _LOCK),
+            _cap("Running evaluations (Phase 4)", _LOCK),
+            spacing="2",
+            align="start",
+            width="100%",
+            style={"marginBottom": "16px"},
+        ),
+        rx.text("Mockup", style={"fontSize": "10px", "fontWeight": "700", "color": TEXT_3, "letterSpacing": "0.06em", "textTransform": "uppercase", "marginBottom": "8px"}),
+        phase1_mockup,
+        style={
+            "padding": "22px 24px",
+            "background": SURFACE,
+            "border": f"2px solid rgba(27,72,196,0.18)",
+            "borderTop": f"4px solid {BLUE}",
+            "borderRadius": "12px",
+        },
+    )
+
+    # ── Phase 2 mockup: team member list ─────────────────────────────────────
+    phase2_mockup = rx.box(
+        rx.text("Team Members", style={"fontSize": "10px", "fontWeight": "700", "color": TEXT_3, "letterSpacing": "0.06em", "textTransform": "uppercase", "marginBottom": "10px"}),
+        rx.vstack(
+            *[rx.hstack(
+                rx.box(
+                    rx.text(init, style={"fontSize": "10px", "fontWeight": "900", "color": "white", "fontFamily": "'Georgia', serif"}),
+                    style={"width": "24px", "height": "24px", "borderRadius": "5px", "background": clr, "display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": "0"},
+                ),
+                rx.vstack(
+                    rx.text(name, style={"fontSize": "12px", "fontWeight": "600", "color": TEXT}),
+                    rx.text(email, style={"fontSize": "10px", "color": TEXT_3}),
+                    spacing="0",
+                    align="start",
+                ),
+                rx.box(
+                    rx.text(role, style={"fontSize": "9px", "fontWeight": "700", "color": clr}),
+                    style={"padding": "2px 7px", "background": bg, "borderRadius": "3px", "marginLeft": "auto"},
+                ),
+                spacing="2",
+                align="center",
+                width="100%",
+                style={"padding": "7px 0"},
+            ) for init, name, email, role, clr, bg in [
+                ("A", "Alex Chen", "alex@acme.io", "Founder", ROSE, ROSE_BG),
+                ("S", "Sara Patel", "sara@acme.io", "Co-Founder", BLUE, BLUE_BG),
+                ("M", "Mike R.", "mike@acme.io", "Viewer", TEXT_3, SURFACE_2),
+            ]],
+            spacing="0",
+            align="start",
+            width="100%",
+            style={"marginBottom": "12px"},
+        ),
+        rx.box(
+            rx.text("All 3 members see the same evaluation results", style={"fontSize": "11px", "color": GREEN, "fontWeight": "600"}),
+            style={"padding": "8px 12px", "background": GREEN_BG, "border": f"1px solid rgba(10,124,82,0.2)", "borderRadius": "6px"},
+        ),
+        style={"padding": "16px 18px", "background": SURFACE, "border": f"1px solid {BORDER}", "borderRadius": "9px"},
+    )
+
+    phase2 = rx.box(
+        _phase_badge(2, "Team-Wide Access", GREEN, GREEN_BG),
+        rx.text(
+            "Multiple founders and employees from the same startup can all log in and see shared evaluation results.",
+            style={"fontSize": "13px", "color": TEXT_2, "lineHeight": "1.6", "margin": "10px 0 14px"},
+        ),
+        rx.vstack(
+            _cap("Invite co-founders and team members by email", _CHECK),
+            _cap("Role management: Founder, Co-Founder, or Viewer", _CHECK),
+            _cap("All team members see the same startup's results", _CHECK),
+            _cap("Team activity log — who viewed what and when", _CHECK),
+            rx.box(style={"height": "1px", "background": BORDER, "width": "100%"}),
+            _cap("Document submission (Phase 3)", _LOCK),
+            _cap("Running evaluations (Phase 4)", _LOCK),
+            spacing="2",
+            align="start",
+            width="100%",
+            style={"marginBottom": "16px"},
+        ),
+        rx.text("Mockup", style={"fontSize": "10px", "fontWeight": "700", "color": TEXT_3, "letterSpacing": "0.06em", "textTransform": "uppercase", "marginBottom": "8px"}),
+        phase2_mockup,
+        style={
+            "padding": "22px 24px",
+            "background": SURFACE,
+            "border": f"2px solid rgba(10,124,82,0.18)",
+            "borderTop": f"4px solid {GREEN}",
+            "borderRadius": "12px",
+        },
+    )
+
+    # ── Phase 3 mockup: submission hub ────────────────────────────────────────
+    phase3_mockup = rx.box(
+        rx.text("Submission Hub", style={"fontSize": "10px", "fontWeight": "700", "color": TEXT_3, "letterSpacing": "0.06em", "textTransform": "uppercase", "marginBottom": "10px"}),
+        rx.vstack(
+            _file_row_sm("pitch_deck_v3.pdf", "Ready", GREEN, GREEN_BG),
+            _file_row_sm("exec_summary.pdf", "Ready", GREEN, GREEN_BG),
+            _file_row_sm("projections_2025.xlsx", "Ready", GREEN, GREEN_BG),
+            _file_row_sm("team_bios.pdf", "Pending", TEXT_3, SURFACE_2),
+            _file_row_sm("market_research.pdf", "Pending", TEXT_3, SURFACE_2),
+            spacing="2",
+            align="start",
+            width="100%",
+            style={"marginBottom": "12px"},
+        ),
+        rx.hstack(
+            rx.text("Completeness", style={"fontSize": "10px", "color": TEXT_3, "fontWeight": "600"}),
+            rx.text("60%", style={"fontFamily": "'Courier New', monospace", "fontSize": "10px", "color": GOLD, "fontWeight": "700"}),
+            justify="between",
+            width="100%",
+            style={"marginBottom": "5px"},
+        ),
+        rx.box(
+            rx.box(style={"height": "100%", "background": GOLD, "width": "60%", "borderRadius": "3px"}),
+            style={"width": "100%", "height": "6px", "background": "#fef3c7", "borderRadius": "3px", "overflow": "hidden", "marginBottom": "12px"},
+        ),
+        rx.box(
+            rx.text("Admin reviews and runs EvalBot when ready", style={"fontSize": "11px", "color": TEXT_2, "fontWeight": "600"}),
+            style={"padding": "7px 12px", "background": "#fffbeb", "border": "1px solid rgba(180,130,0,0.2)", "borderRadius": "6px"},
+        ),
+        style={"padding": "16px 18px", "background": SURFACE, "border": f"1px solid {BORDER}", "borderRadius": "9px"},
+    )
+
+    phase3 = rx.box(
+        _phase_badge(3, "Document Submission", GOLD, GOLD_BG),
+        rx.text(
+            "Founders upload their pitch materials, financials, and team docs. Your team reviews everything and runs the evaluation when ready.",
+            style={"fontSize": "13px", "color": TEXT_2, "lineHeight": "1.6", "margin": "10px 0 14px"},
+        ),
+        rx.vstack(
+            _cap("Upload pitch decks, financial models, and team docs", _CHECK),
+            _cap("Submission completeness tracker before trigger", _CHECK),
+            _cap("Each document type routed to the correct agents", _CHECK),
+            _cap("Admin reviews submissions and triggers EvalBot", _CHECK),
+            rx.box(style={"height": "1px", "background": BORDER, "width": "100%"}),
+            _cap("Founders triggering their own eval runs (Phase 4)", _LOCK),
+            spacing="2",
+            align="start",
+            width="100%",
+            style={"marginBottom": "16px"},
+        ),
+        rx.text("Mockup", style={"fontSize": "10px", "fontWeight": "700", "color": TEXT_3, "letterSpacing": "0.06em", "textTransform": "uppercase", "marginBottom": "8px"}),
+        phase3_mockup,
+        style={
+            "padding": "22px 24px",
+            "background": SURFACE,
+            "border": f"2px solid rgba(168,88,0,0.18)",
+            "borderTop": f"4px solid {GOLD}",
+            "borderRadius": "12px",
+        },
+    )
+
+    # ── Phase 4 mockup: self-service run panel ────────────────────────────────
+    phase4_mockup = rx.box(
+        rx.hstack(
+            rx.vstack(
+                rx.text("Run Evaluation", style={"fontSize": "12px", "fontWeight": "700", "color": TEXT}),
+                rx.text("5 documents ready · 7 agents", style={"fontSize": "10px", "color": TEXT_3}),
+                spacing="0",
                 align="start",
-            ) for item in [
-                "Strong founding team with deep domain expertise",
-                "Clear product differentiation in an underserved market",
-                "Early revenue traction with 3 paying enterprise customers",
+            ),
+            rx.box(
+                rx.text("▶  Run Now", style={"fontSize": "11px", "fontWeight": "800", "color": "white"}),
+                style={"padding": "7px 16px", "background": PURPLE, "borderRadius": "6px"},
+            ),
+            justify="between",
+            align="center",
+            width="100%",
+            style={"marginBottom": "14px"},
+        ),
+        rx.text("Latest Run — in progress", style={"fontSize": "10px", "fontWeight": "700", "color": TEXT_3, "letterSpacing": "0.06em", "textTransform": "uppercase", "marginBottom": "8px"}),
+        rx.vstack(
+            *[rx.hstack(
+                rx.text(agent, style={"fontFamily": "'Courier New', monospace", "fontSize": "10px", "color": TEXT_3, "width": "56px", "flexShrink": "0"}),
+                rx.box(
+                    rx.box(style={"height": "100%", "background": clr, "width": f"{pct}%", "borderRadius": "2px"}),
+                    style={"flex": "1", "height": "5px", "background": SURFACE_2, "borderRadius": "2px", "overflow": "hidden"},
+                ),
+                rx.text(status, style={"fontSize": "10px", "fontWeight": "600", "color": clr, "width": "64px", "textAlign": "right", "flexShrink": "0"}),
+                spacing="2",
+                align="center",
+                width="100%",
+            ) for agent, pct, clr, status in [
+                ("Agent 1", 100, GREEN, "✓ Done"),
+                ("Agent 2", 100, GREEN, "✓ Done"),
+                ("Agent 3", 100, GREEN, "✓ Done"),
+                ("Agent 4", 60, BLUE, "Running…"),
+                ("Agent 5", 0, TEXT_3, "Queued"),
+                ("Agent 6", 0, TEXT_3, "Queued"),
             ]],
             spacing="2",
             align="start",
-            style={"marginBottom": "18px"},
+            width="100%",
         ),
-        # Top recommendation
-        rx.text("Top Recommendation", style={"fontSize": "11px", "fontWeight": "700", "color": TEXT_3, "letterSpacing": "0.06em", "textTransform": "uppercase", "marginBottom": "10px"}),
-        rx.box(
-            rx.text(
-                "Focus the next 90 days on signing a second enterprise reference customer "
-                "before raising a seed round. Investors will want to see repeatable sales motion.",
-                style={"fontSize": "12px", "color": TEXT_2, "lineHeight": "1.6"},
-            ),
-            style={"padding": "12px 14px", "background": BLUE_BG, "border": f"1px solid rgba(27,72,196,0.15)", "borderRadius": "7px"},
-        ),
-        spacing="0",
-        align="start",
-        style={"padding": "22px", "background": SURFACE, "border": f"1px solid {BORDER}", "borderRadius": "10px"},
+        style={"padding": "16px 18px", "background": SURFACE, "border": f"1px solid {BORDER}", "borderRadius": "9px"},
     )
 
-    # Right panel: locked admin-only section
-    admin_view = rx.vstack(
-        # Comparative ranking — locked
+    phase4 = rx.box(
+        _phase_badge(4, "Self-Service Evaluation Runs", PURPLE, PURPLE_BG),
+        rx.text(
+            "Founders can trigger their own EvalBot runs whenever they update their documents, watching all 7 agents progress in real time.",
+            style={"fontSize": "13px", "color": TEXT_2, "lineHeight": "1.6", "margin": "10px 0 14px"},
+        ),
+        rx.vstack(
+            _cap("Founders trigger evaluation runs themselves", _CHECK),
+            _cap("Real-time run progress across all 7 agents", _CHECK),
+            _cap("Re-run any time after updating documents", _CHECK),
+            _cap("Updated score and recommendations delivered instantly", _CHECK),
+            _cap("Run history — compare scores across submissions", _CHECK),
+            spacing="2",
+            align="start",
+            width="100%",
+            style={"marginBottom": "16px"},
+        ),
+        rx.text("Mockup", style={"fontSize": "10px", "fontWeight": "700", "color": TEXT_3, "letterSpacing": "0.06em", "textTransform": "uppercase", "marginBottom": "8px"}),
+        phase4_mockup,
+        style={
+            "padding": "22px 24px",
+            "background": SURFACE,
+            "border": f"2px solid rgba(124,58,237,0.18)",
+            "borderTop": f"4px solid {PURPLE}",
+            "borderRadius": "12px",
+        },
+    )
+
+    # ── Access levels comparison ───────────────────────────────────────────────
+    access_strip = rx.box(
+        rx.text("Access Levels", style={"fontSize": "15px", "fontWeight": "700", "color": TEXT, "marginBottom": "20px"}),
         rx.box(
-            rx.vstack(
-                rx.hstack(
-                    rx.text("Batch Ranking", style={"fontSize": "11px", "fontWeight": "700", "color": TEXT_3, "letterSpacing": "0.06em", "textTransform": "uppercase"}),
-                    rx.hstack(
-                        rx.html('<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="2.5" y="5.5" width="7" height="5.5" rx="1.2" stroke="#7188a4" stroke-width="1.1"/><path d="M4 5.5V4a2 2 0 014 0v1.5" stroke="#7188a4" stroke-width="1.1"/></svg>'),
-                        rx.text("Admin only", style={"fontSize": "10px", "fontWeight": "600", "color": TEXT_3}),
-                        spacing="1",
-                        align="center",
-                    ),
-                    justify="between",
-                    align="center",
-                    width="100%",
-                    style={"marginBottom": "14px"},
-                ),
-                # Blurred ranking rows
+            *[rx.box(
+                rx.text(role, style={"fontSize": "11px", "fontWeight": "700", "color": clr, "letterSpacing": "0.05em", "textTransform": "uppercase", "marginBottom": "14px"}),
                 rx.vstack(
                     *[rx.hstack(
-                        rx.text(f"#{rank}", style={"fontFamily": "'Courier New', monospace", "fontSize": "11px", "color": TEXT_3, "width": "24px"}),
-                        rx.box(style={"flex": "1", "height": "10px", "background": clr, "borderRadius": "3px", "opacity": "0.25"}),
-                        rx.text(score, style={"fontFamily": "'Courier New', monospace", "fontSize": "11px", "color": TEXT_3, "width": "36px", "textAlign": "right"}),
-                        spacing="3",
-                        align="center",
-                        width="100%",
-                    ) for rank, score, clr in [
-                        (1, "84", GREEN),
-                        (2, "81", GREEN),
-                        (3, "77", BLUE),
-                        (4, "74 ←", ROSE),   # founder's position highlighted
-                        (5, "68", BLUE),
-                        (6, "61", BLUE),
-                    ]],
-                    spacing="2",
-                    align="start",
-                    style={"filter": "blur(2.5px)", "userSelect": "none", "pointerEvents": "none"},
-                ),
-                spacing="0",
-            ),
-            style={"padding": "20px", "background": SURFACE, "border": f"1px solid {BORDER}", "borderRadius": "10px", "position": "relative", "overflow": "hidden"},
-        ),
-        # All-startups table — locked
-        rx.box(
-            rx.hstack(
-                rx.text("All Startups (Batch 4)", style={"fontSize": "11px", "fontWeight": "700", "color": TEXT_3, "letterSpacing": "0.06em", "textTransform": "uppercase"}),
-                rx.hstack(
-                    rx.html('<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="2.5" y="5.5" width="7" height="5.5" rx="1.2" stroke="#7188a4" stroke-width="1.1"/><path d="M4 5.5V4a2 2 0 014 0v1.5" stroke="#7188a4" stroke-width="1.1"/></svg>'),
-                    rx.text("Admin only", style={"fontSize": "10px", "fontWeight": "600", "color": TEXT_3}),
-                    spacing="1",
-                    align="center",
-                ),
-                justify="between",
-                align="center",
-                width="100%",
-                style={"marginBottom": "14px"},
-            ),
-            rx.vstack(
-                *[rx.hstack(
-                    rx.box(style={"flex": "2", "height": "9px", "background": "#dce3f0", "borderRadius": "2px"}),
-                    rx.box(style={"flex": "1", "height": "9px", "background": "#dce3f0", "borderRadius": "2px"}),
-                    rx.box(style={"width": "28px", "height": "9px", "background": clr, "borderRadius": "2px", "opacity": "0.4"}),
+                        rx.html(tick),
+                        rx.text(item, style={"fontSize": "13px", "color": TEXT_2, "lineHeight": "1.4"}),
+                        spacing="2",
+                        align="start",
+                    ) for item, tick in items],
                     spacing="3",
-                    width="100%",
-                ) for clr in [GREEN, GREEN, BLUE, ROSE, BLUE, BLUE]],
-                spacing="2",
-                align="start",
-                style={"filter": "blur(2px)", "userSelect": "none", "pointerEvents": "none"},
-            ),
-            style={"padding": "20px", "background": SURFACE, "border": f"1px solid {BORDER}", "borderRadius": "10px"},
+                    align="start",
+                ),
+                style={"padding": "20px", "background": bg, "border": f"1px solid {bdr}", "borderRadius": "10px"},
+            ) for role, clr, bg, bdr, items in [
+                ("Founder", ROSE, ROSE_BG, "rgba(190,24,93,0.12)", [
+                    ("See their own score, verdict, SWOT & recommendations", _CHECK),
+                    ("Invite team members to share access", _CHECK),
+                    ("Upload pitch materials, financials, and team docs", _CHECK),
+                    ("Trigger evaluation runs (Phase 4)", _CHECK),
+                    ("See other startups or comparative rankings", _CROSS),
+                    ("Access admin controls or batch analytics", _CROSS),
+                ]),
+                ("LP / Partner", BLUE, BLUE_BG, "rgba(27,72,196,0.12)", [
+                    ("View curated batch-level reports", _CHECK),
+                    ("See top-ranked startups in summary view", _CHECK),
+                    ("Access verdict distribution across batches", _CHECK),
+                    ("View individual startup details or documents", _CROSS),
+                    ("Run or trigger evaluations", _CROSS),
+                    ("Access founder submission materials", _CROSS),
+                ]),
+                ("Admin (VC)", GREEN, GREEN_BG, "rgba(10,124,82,0.12)", [
+                    ("Full access to all startup submissions and results", _CHECK),
+                    ("Comparative rankings and cross-batch analytics", _CHECK),
+                    ("Configure evaluation scope and access roles", _CHECK),
+                    ("View and download all submitted documents", _CHECK),
+                    ("Manage founder accounts and team permissions", _CHECK),
+                    ("Override or re-run evaluations for any startup", _CHECK),
+                ]),
+            ]],
+            style={"display": "grid", "gridTemplateColumns": "1fr 1fr 1fr", "gap": "16px"},
         ),
-        rx.box(
-            rx.text(
-                "Comparative ranking and the full startup list are visible only to admins. "
-                "Founders see their own score, verdict, and recommendations.",
-                style={"fontSize": "12px", "color": TEXT_3, "lineHeight": "1.6", "textAlign": "center"},
-            ),
-            style={"padding": "14px 16px", "background": ROSE_BG, "border": "1px solid rgba(190,24,93,0.12)", "borderRadius": "8px"},
-        ),
-        spacing="4",
-        align="start",
-        width="100%",
+        style={
+            "padding": "28px 32px",
+            "background": SURFACE,
+            "border": f"1px solid {BORDER}",
+            "borderRadius": "12px",
+            "marginTop": "40px",
+        },
     )
 
     return page_layout(
         _page_header(
-            '<svg width="24" height="24" viewBox="0 0 20 20" fill="none"><circle cx="9" cy="7.5" r="3" stroke="#be185d" stroke-width="1.5"/><path d="M3 17c0-2.8 2.7-5 6-5" stroke="#be185d" stroke-width="1.5" stroke-linecap="round"/><circle cx="15" cy="14" r="2.5" stroke="#be185d" stroke-width="1.5"/><path d="M17.5 14h1.2" stroke="#be185d" stroke-width="1.5" stroke-linecap="round"/></svg>',
+            '<svg width="24" height="24" viewBox="0 0 20 20" fill="none">'
+            '<circle cx="9" cy="7.5" r="3" stroke="#be185d" stroke-width="1.5"/>'
+            '<path d="M3 17c0-2.8 2.7-5 6-5" stroke="#be185d" stroke-width="1.5" stroke-linecap="round"/>'
+            '<circle cx="15" cy="14" r="2.5" stroke="#be185d" stroke-width="1.5"/>'
+            '<path d="M17.5 14h1.2" stroke="#be185d" stroke-width="1.5" stroke-linecap="round"/></svg>',
             ROSE_BG, "rgba(190,24,93,0.2)",
-            "Coming Feature",
+            "Roadmap Feature",
             "Founder Portal",
         ),
-        rx.box(
-            rx.vstack(
-                rx.text(
-                    "Let founders log in, submit their own pitch, and run the evaluation — then show them only their own results.",
-                    style={"fontSize": "17px", "fontWeight": "700", "color": TEXT, "lineHeight": "1.5", "marginBottom": "16px"},
-                ),
-                rx.text(
-                    "Today, every evaluation is initiated internally. Founders never interact "
-                    "with EvalBot directly — they submit a pitch and wait. There's no "
-                    "self-serve option, no transparency into what the agents actually assess, "
-                    "and no ongoing relationship with the founders you evaluate.",
-                    style={"fontSize": "14px", "color": TEXT_2, "lineHeight": "1.7", "marginBottom": "14px"},
-                ),
-                rx.text(
-                    "The Founder Portal gives each startup their own login. They upload their "
-                    "pitch, run the 7-agent pipeline, and receive a full report: score, verdict, "
-                    "SWOT, and recommendations. Their view is deliberately scoped — they see "
-                    "their own results only, never other startups' data or batch rankings.",
-                    style={"fontSize": "14px", "color": TEXT_2, "lineHeight": "1.7", "marginBottom": "14px"},
-                ),
-                rx.text(
-                    "You, as admin, retain the full view: all submitted startups side-by-side, "
-                    "comparative rankings, cross-batch history, and the ability to filter and "
-                    "configure what the evaluation covers for founder submissions vs. internal runs.",
-                    style={"fontSize": "14px", "color": TEXT_2, "lineHeight": "1.7"},
-                ),
-                _unlocks_section([
-                    "Self-serve founder login — each startup has its own isolated account",
-                    "Founders run the eval pipeline on their own pitch, see score + recommendations",
-                    "Strict data isolation — no founder can see another startup's results",
-                    "Admin retains full comparative view: rankings, batch analysis, all startups",
-                    "Configurable agent scope — filter which agents run for founder submissions",
-                ]),
-                spacing="0",
-                align="start",
-            ),
-            rx.vstack(
-                rx.text(
-                    "Founder view",
-                    style={"fontSize": "11px", "fontWeight": "700", "color": ROSE, "letterSpacing": "0.06em", "textTransform": "uppercase", "marginBottom": "8px"},
-                ),
-                founder_view,
-                rx.text(
-                    "Admin-only sections",
-                    style={"fontSize": "11px", "fontWeight": "700", "color": TEXT_3, "letterSpacing": "0.06em", "textTransform": "uppercase", "marginTop": "16px", "marginBottom": "8px"},
-                ),
-                admin_view,
-                spacing="0",
-                align="start",
-                width="100%",
-            ),
-            style={
-                "display": "grid",
-                "gridTemplateColumns": "1fr 1fr",
-                "gap": "48px",
-                "alignItems": "start",
-            },
+        rx.text(
+            "A four-phase plan giving founders their own window into EvalBot — "
+            "starting with read-only score access and building toward fully self-service evaluation runs.",
+            style={"fontSize": "15px", "color": TEXT_2, "lineHeight": "1.6", "maxWidth": "680px", "marginBottom": "32px"},
         ),
+        phase_strip,
+        rx.box(
+            phase1,
+            phase2,
+            phase3,
+            phase4,
+            style={"display": "grid", "gridTemplateColumns": "1fr 1fr", "gap": "24px"},
+        ),
+        access_strip,
     )
+
