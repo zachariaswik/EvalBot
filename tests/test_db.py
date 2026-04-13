@@ -176,6 +176,25 @@ class TestStoreAndRetrieveAgentOutput:
         outputs = get_current_outputs("b1", "NoSuchStartup", tmp_db)
         assert outputs == {}
 
+    def test_recovers_verdict_from_malformed_raw_output(self, tmp_db):
+        create_batch("b1", "", tmp_db)
+        raw_output = (
+            '\n\n{"summary":"Value with unescaped "quote",'
+            '"total_score":63,"verdict":"Promising, Needs Sharper Focus"}'
+        )
+        malformed = json.dumps({"raw_output": raw_output})
+        store_agent_output("b1", "S1", 2, malformed, db_path=tmp_db)
+        outputs = get_current_outputs("b1", "S1", tmp_db)
+        assert outputs[2]["verdict"] == "Promising, Needs Sharper Focus"
+        assert outputs[2]["total_score"] == 63
+
+    def test_keeps_raw_output_if_no_fields_recoverable(self, tmp_db):
+        create_batch("b1", "", tmp_db)
+        bad = '{"raw_output":"this is not json"}'
+        store_agent_output("b1", "S1", 2, bad, db_path=tmp_db)
+        outputs = get_current_outputs("b1", "S1", tmp_db)
+        assert outputs[2] == {"raw_output": "this is not json"}
+
 
 # ---------------------------------------------------------------------------
 # Batch outputs

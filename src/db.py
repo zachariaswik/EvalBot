@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -73,6 +74,47 @@ CREATE INDEX IF NOT EXISTS idx_retry_log_startup ON retry_log(batch_id, startup_
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _recover_fields_from_raw_output(raw: str) -> dict:
+    """Best-effort recovery for malformed JSON stored under raw_output."""
+    recovered: dict[str, str | int | float] = {}
+
+    string_keys = ("summary", "verdict", "explanation")
+    for key in string_keys:
+        match = re.search(rf'"{key}"\s*:\s*"((?:\\.|[^"\\])*)"', raw, flags=re.DOTALL)
+        if not match:
+            continue
+        encoded = match.group(1)
+        try:
+            recovered[key] = json.loads(f'"{encoded}"')
+        except Exception:
+            recovered[key] = encoded.replace('\\"', '"')
+
+    int_keys = (
+        "score_problem_severity",
+        "score_market_size",
+        "score_differentiation",
+        "score_customer_clarity",
+        "score_founder_insight",
+        "score_business_model",
+        "score_moat_potential",
+        "score_venture_potential",
+        "score_competition_difficulty",
+        "score_execution_feasibility",
+        "total_score",
+    )
+    for key in int_keys:
+        match = re.search(rf'"{key}"\s*:\s*(-?\d+(?:\.\d+)?)', raw)
+        if not match:
+            continue
+        recovered[key] = int(round(float(match.group(1))))
+
+    weighted_match = re.search(r'"weighted_total_score"\s*:\s*(-?\d+(?:\.\d+)?)', raw)
+    if weighted_match:
+        recovered["weighted_total_score"] = float(weighted_match.group(1))
+
+    return recovered
 
 
 def _connect(db_path: Path | None = None) -> sqlite3.Connection:
@@ -192,6 +234,8 @@ def get_current_outputs(
                     result[agent_num] = json.loads(raw)
                     continue
                 except json.JSONDecodeError:
+                    recovered = _recover_fields_from_raw_output(raw)
+                    result[agent_num] = recovered if recovered else top_level_parsed
                     continue
 
         result[agent_num] = top_level_parsed

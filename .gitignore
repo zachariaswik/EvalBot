@@ -12,6 +12,7 @@ __pycache__/
 *.db
 *.sqlite
 *.sqlite3
+evalbot.db*
 
 # Pipeline output (JSON results)
 output/
@@ -24,6 +25,7 @@ Startups/
 testStartups/
 startup_docs/
 input_docs/
+Total_Results.csv
 
 # Video files
 *.mov
