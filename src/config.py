@@ -64,7 +64,7 @@ AGENT_MODELS: dict[int, str | None] = {
 # Automatic retry and fallback when primary model fails (e.g., connection errors)
 
 # Number of retry attempts before falling back to secondary model
-RETRY_ATTEMPTS = 5  # 5 retries with exponential backoff
+RETRY_ATTEMPTS = 8  # 8 retries with exponential backoff
 
 # Delay between retries (seconds). Uses exponential backoff: 2, 4, 8, 16, 32, ...
 RETRY_BASE_DELAY = 2
