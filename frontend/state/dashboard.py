@@ -1,4 +1,4 @@
-"""Dashboard state — loads batches, stats, and top startups."""
+"""Dashboard state — loads aggregate batch stats for the homepage."""
 
 from __future__ import annotations
 
@@ -104,9 +104,12 @@ class DashboardState(rx.State):
     total_startups: int = 0
     total_batches: int = 0
     vc_percent: int = 0
-    top_startups: list[dict] = []  # top 3 from latest batch
+    top_startups: list[dict] = []  # retained for compatibility
     latest_batch_id: str = ""
     latest_batch_created: str = ""
+    avg_startups_per_batch: float = 0.0
+    largest_batch_id: str = ""
+    largest_batch_size: int = 0
     is_loading: bool = True
 
     @rx.event
@@ -116,7 +119,7 @@ class DashboardState(rx.State):
 
         db = _db_path()
         if db:
-            from src.db import list_batches, list_startups
+            from src.db import list_batches
 
             batches = list_batches(db)
         else:
@@ -125,42 +128,18 @@ class DashboardState(rx.State):
         self.batches = batches
         self.total_startups = sum(b.get("startup_count", 0) for b in batches)
         self.total_batches = len(batches)
-
-        vc_count = 0
-        top_startups: list[dict] = []
-
-        if batches:
-            first_batch_id = batches[0]["batch_id"]
-            self.latest_batch_id = first_batch_id
-            self.latest_batch_created = batches[0].get("created_at", "")
-
-            if db:
-                from src.db import list_startups
-
-                first_startups = list_startups(first_batch_id, db)
-            else:
-                first_startups = _load_batch_from_fs(first_batch_id)
-
-            for s in first_startups[:10]:
-                outputs = _get_startup_outputs(first_batch_id, s["startup_name"])
-                a2 = outputs.get(2, {})
-                verdict = a2.get("verdict", "")
-                score = a2.get("total_score", 0) or 0
-                if verdict == "Top VC Candidate":
-                    vc_count += 1
-                top_startups.append(
-                    {
-                        "name": s["startup_name"],
-                        "verdict": verdict,
-                        "score": score,
-                        "verdict_color": _get_verdict_color(verdict),
-                        "bar_color": _get_bar_color(score),
-                    }
-                )
-            top_startups.sort(key=lambda x: x["score"], reverse=True)
-            self.top_startups = top_startups[:3]
-
-        self.vc_percent = (
-            round(vc_count / self.total_startups * 100) if self.total_startups > 0 else 0
+        self.vc_percent = 0
+        self.top_startups = []
+        self.latest_batch_id = ""
+        self.latest_batch_created = ""
+        self.avg_startups_per_batch = (
+            round(self.total_startups / self.total_batches, 1) if self.total_batches > 0 else 0.0
         )
+        largest = max(batches, key=lambda b: b.get("startup_count", 0), default=None)
+        if largest:
+            self.largest_batch_id = largest.get("batch_id", "")
+            self.largest_batch_size = int(largest.get("startup_count", 0) or 0)
+        else:
+            self.largest_batch_id = ""
+            self.largest_batch_size = 0
         self.is_loading = False

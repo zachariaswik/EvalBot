@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import reflex as rx
 
-from frontend.components.badges import section_marker, verdict_badge
+from frontend.components.badges import section_marker
 from frontend.components.navbar import page_layout
 from frontend.state.dashboard import DashboardState
 
@@ -12,18 +12,14 @@ from frontend.state.dashboard import DashboardState
 BLUE = "#1b48c4"
 BLUE_2 = "#163a9e"
 BLUE_BG = "#eef2fd"
-BLUE_GLOW = "rgba(27,72,196,0.12)"
 GOLD_2 = "#d98e1e"
 GREEN = "#0a7c52"
 TEXT = "#0c1829"
 TEXT_2 = "#374f6a"
 TEXT_3 = "#7188a4"
-TEXT_4 = "#aebdd0"
 SURFACE = "#ffffff"
 SURFACE_2 = "#f0f4fb"
-SURFACE_3 = "#e5ecf7"
 BORDER = "#dce3f0"
-BORDER_2 = "#c2cfe4"
 
 
 def stat_card(number: str, label: str, value: rx.Var | str, suffix: str = "", accent: str = TEXT) -> rx.Component:
@@ -68,124 +64,48 @@ def stat_card(number: str, label: str, value: rx.Var | str, suffix: str = "", ac
     )
 
 
-def top_startup_card(s: dict, idx: int) -> rx.Component:
-    score = s["score"]
-    bar_color = s["bar_color"]
-    return rx.link(
-        rx.box(
-            # rank badge #1
-            rx.cond(
-                idx == 0,
-                rx.box(
-                    rx.text("1", style={"fontFamily": "'Georgia', serif", "fontSize": "12px", "fontWeight": "900", "color": "white", "lineHeight": "1"}),
-                    style={
-                        "position": "absolute",
-                        "top": "16px",
-                        "right": "16px",
-                        "width": "28px",
-                        "height": "28px",
-                        "background": BLUE,
-                        "borderRadius": "50%",
-                        "display": "flex",
-                        "alignItems": "center",
-                        "justifyContent": "center",
-                    },
-                ),
-                rx.box(),
-            ),
-            rx.box(
-                rx.text(
-                    s["name"],
-                    style={
-                        "fontSize": "16px",
-                        "fontWeight": "700",
-                        "color": TEXT,
-                        "overflow": "hidden",
-                        "textOverflow": "ellipsis",
-                        "whiteSpace": "nowrap",
-                        "marginBottom": "6px",
-                    },
-                ),
-                verdict_badge(s["verdict"], s["verdict_color"]),
-                style={"marginBottom": "12px"},
-            ),
-            rx.hstack(
-                rx.text(
-                    score,
-                    style={"fontFamily": "'Georgia', serif", "fontSize": "38px", "fontWeight": "900", "lineHeight": "1", "color": bar_color},
-                ),
-                rx.text("/100", style={"fontSize": "14px", "color": TEXT_4, "marginBottom": "2px"}),
-                spacing="1",
-                align="end",
-                style={"marginBottom": "12px"},
-            ),
-            rx.box(
-                rx.box(
-                    style={
-                        "height": "100%",
-                        "borderRadius": "2px",
-                        "background": bar_color,
-                        "width": score.to(str) + "%",
-                    }
-                ),
-                style={"height": "3px", "background": SURFACE_3, "borderRadius": "2px", "overflow": "hidden"},
-            ),
-            style={
-                "background": SURFACE,
-                "border": f"1px solid {BORDER}",
-                "borderRadius": "12px",
-                "padding": "24px",
-                "cursor": "pointer",
-                "position": "relative",
-                "overflow": "hidden",
-                "transition": "box-shadow 0.2s, border-color 0.2s, transform 0.15s",
-                "_hover": {
-                    "boxShadow": f"0 8px 30px {BLUE_GLOW}",
-                    "borderColor": BORDER_2,
-                    "transform": "translateY(-1px)",
-                },
-            },
-        ),
-        href=f"/batch/{DashboardState.latest_batch_id}/{s['name']}",
-        style={"textDecoration": "none"},
-    )
-
-
 def batch_row(b: dict) -> rx.Component:
     count = b["startup_count"]
+    date_text = rx.cond(b["created_at"], b["created_at"], "—")
     return rx.el.tr(
         rx.el.td(
             rx.hstack(
-                rx.box(style={"width": "8px", "height": "8px", "borderRadius": "50%", "background": BLUE, "flexShrink": "0"}),
-                rx.text(b["batch_id"], style={"fontFamily": "'Courier New', monospace", "fontSize": "13px", "fontWeight": "500", "color": TEXT}),
+                rx.box(style={"width": "10px", "height": "10px", "borderRadius": "50%", "background": BLUE, "flexShrink": "0"}),
+                rx.text(b["batch_id"], style={"fontFamily": "'Courier New', monospace", "fontSize": "15px", "fontWeight": "600", "color": TEXT}),
                 rx.cond(
                     b["description"],
-                    rx.text(b["description"], style={"fontSize": "12px", "color": TEXT_3}),
+                    rx.text(b["description"], style={"fontSize": "13px", "color": TEXT_3}),
                     rx.box(),
                 ),
                 spacing="3",
                 align="center",
             ),
-            style={"padding": "15px 24px"},
+            style={"padding": "18px 24px"},
         ),
         rx.el.td(
-            rx.text("—", style={"fontFamily": "'Courier New', monospace", "fontSize": "12px", "color": TEXT_3}),
-            style={"padding": "15px 24px"},
+            rx.text(date_text, style={"fontFamily": "'Courier New', monospace", "fontSize": "13px", "color": TEXT_3}),
+            style={"padding": "18px 24px"},
         ),
         rx.el.td(
-            rx.hstack(
-                rx.text(count, style={"fontSize": "14px", "fontWeight": "700", "color": TEXT}),
-                rx.text(
-                    rx.cond(count == 1, "startup", "startups"),
-                    style={"fontSize": "12px", "color": TEXT_3, "marginLeft": "3px"},
+            rx.vstack(
+                rx.hstack(
+                    rx.text(count, style={"fontSize": "18px", "fontWeight": "800", "color": TEXT}),
+                    rx.text(
+                        rx.cond(count == 1, "startup", "startups"),
+                        style={"fontSize": "13px", "color": TEXT_3, "marginLeft": "4px"},
+                    ),
+                    spacing="1",
+                    justify="end",
+                    align="center",
                 ),
-                spacing="1",
+                spacing="2",
+                align="end",
             ),
-            style={"padding": "15px 24px", "textAlign": "right"},
+            style={"padding": "18px 24px", "textAlign": "right"},
         ),
         rx.el.td(
-            rx.text("›", style={"color": BLUE, "fontSize": "16px"}),
-            style={"padding": "15px 24px", "textAlign": "right"},
+            rx.text("›", style={"color": BLUE, "fontSize": "18px"}),
+            style={"padding": "18px 24px", "textAlign": "right"},
         ),
         style={
             "borderBottom": f"1px solid {SURFACE_2}",
@@ -239,73 +159,41 @@ def dashboard_page() -> rx.Component:
             style={"marginBottom": "44px"},
         ),
 
-        # ── Latest batch highlight ──
-        rx.cond(
-            DashboardState.latest_batch_id != "",
-            rx.box(
-                rx.hstack(
-                    rx.hstack(
-                        section_marker("Latest batch"),
-                        rx.box(
-                            rx.text(
-                                DashboardState.latest_batch_id,
-                                style={"fontFamily": "'Courier New', monospace", "fontSize": "11px", "fontWeight": "500", "color": BLUE},
-                            ),
-                            style={
-                                "background": BLUE_BG,
-                                "border": "1px solid rgba(27,72,196,0.15)",
-                                "padding": "2px 9px",
-                                "borderRadius": "4px",
-                            },
-                        ),
-                        rx.cond(
-                            DashboardState.latest_batch_created != "",
-                            rx.text(
-                                DashboardState.latest_batch_created[:10],
-                                style={"fontSize": "12px", "color": TEXT_4, "fontWeight": "500"},
-                            ),
-                            rx.box(),
-                        ),
-                        spacing="3",
-                        align="center",
-                    ),
-                    rx.link(
-                        "View full batch →",
-                        href="/batch/" + DashboardState.latest_batch_id,
-                        style={"fontSize": "13px", "fontWeight": "600", "color": BLUE, "textDecoration": "none"},
-                    ),
-                    justify="between",
-                    align="center",
-                    style={"marginBottom": "20px"},
-                ),
-                rx.cond(
-                    DashboardState.top_startups.length() > 0,
-                    rx.box(
-                        rx.foreach(
-                            DashboardState.top_startups,
-                            lambda s, idx: top_startup_card(s, idx),
-                        ),
-                        style={"display": "grid", "gridTemplateColumns": "repeat(3,1fr)", "gap": "14px"},
-                    ),
-                    rx.box(
-                        rx.text("No startups evaluated in this batch yet.", style={"color": TEXT_3, "fontSize": "14px"}),
-                        style={
-                            "background": SURFACE,
-                            "border": f"1px solid {BORDER}",
-                            "borderRadius": "12px",
-                            "padding": "36px",
-                            "textAlign": "center",
-                        },
-                    ),
-                ),
-                style={"marginBottom": "44px"},
-            ),
-            rx.box(),
-        ),
-
         # ── All batches ──
         rx.vstack(
             section_marker("All batches"),
+            rx.box(
+                rx.grid(
+                    stat_card("01", "Total batches", DashboardState.total_batches, accent=BLUE),
+                    stat_card("02", "Total startups", DashboardState.total_startups, accent=GREEN),
+                    stat_card("03", "Avg startups / batch", DashboardState.avg_startups_per_batch, accent=GOLD_2),
+                    columns="3",
+                    spacing="4",
+                    width="100%",
+                ),
+                rx.cond(
+                    DashboardState.largest_batch_id != "",
+                    rx.hstack(
+                        rx.text("Largest batch", style={"fontSize": "12px", "fontWeight": "700", "letterSpacing": "0.04em", "textTransform": "uppercase", "color": TEXT_3}),
+                        rx.box(
+                            rx.text(
+                                DashboardState.largest_batch_id,
+                                style={"fontFamily": "'Courier New', monospace", "fontSize": "12px", "fontWeight": "600", "color": BLUE},
+                            ),
+                            style={"background": BLUE_BG, "border": "1px solid rgba(27,72,196,0.15)", "padding": "3px 10px", "borderRadius": "6px"},
+                        ),
+                        rx.text(
+                            DashboardState.largest_batch_size.to(str) + " startups",
+                            style={"fontSize": "14px", "fontWeight": "700", "color": TEXT},
+                        ),
+                        spacing="3",
+                        align="center",
+                        style={"marginTop": "14px"},
+                    ),
+                    rx.box(),
+                ),
+                style={"width": "100%", "marginBottom": "8px"},
+            ),
             rx.cond(
                 DashboardState.batches.length() > 0,
                 rx.box(
@@ -313,8 +201,8 @@ def dashboard_page() -> rx.Component:
                         rx.el.thead(
                             rx.el.tr(
                                 rx.el.th("Batch ID", style={"padding": "13px 24px", "textAlign": "left", "fontSize": "11px", "fontWeight": "700", "letterSpacing": "0.08em", "textTransform": "uppercase", "color": TEXT_3}),
-                                rx.el.th("Date", style={"padding": "13px 24px", "textAlign": "left", "fontSize": "11px", "fontWeight": "700", "letterSpacing": "0.08em", "textTransform": "uppercase", "color": TEXT_3}),
-                                rx.el.th("Startups", style={"padding": "13px 24px", "textAlign": "right", "fontSize": "11px", "fontWeight": "700", "letterSpacing": "0.08em", "textTransform": "uppercase", "color": TEXT_3}),
+                                rx.el.th("Date", style={"padding": "16px 24px", "textAlign": "left", "fontSize": "12px", "fontWeight": "700", "letterSpacing": "0.08em", "textTransform": "uppercase", "color": TEXT_3}),
+                                rx.el.th("Startups", style={"padding": "16px 24px", "textAlign": "right", "fontSize": "12px", "fontWeight": "700", "letterSpacing": "0.08em", "textTransform": "uppercase", "color": TEXT_3}),
                                 rx.el.th("", style={"padding": "13px 24px", "width": "40px"}),
                                 style={"borderBottom": f"1px solid {BORDER}"},
                             )
@@ -327,9 +215,9 @@ def dashboard_page() -> rx.Component:
                     style={
                         "background": SURFACE,
                         "border": f"1px solid {BORDER}",
-                        "borderRadius": "12px",
+                        "borderRadius": "14px",
                         "overflow": "hidden",
-                        "boxShadow": "0 2px 12px rgba(12,24,41,0.05)",
+                        "boxShadow": "0 8px 28px rgba(12,24,41,0.06)",
                     },
                 ),
                 rx.box(
