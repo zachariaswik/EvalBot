@@ -725,14 +725,28 @@ MODEL_PRICING: dict[str, tuple[float, float]] = {
     "minimax/MiniMax-M2.5": (0.30, 1.20),
 }
 
+SUBSCRIPTION_MODEL_PREFIXES: tuple[str, ...] = (
+    "minimax/",
+    "ollama/",
+)
+
 
 def _estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
     """Estimate USD cost from model name and token counts."""
     pricing = MODEL_PRICING.get(model)
+    if not pricing and "/" in model:
+        # Some providers report model names with a provider prefix
+        # (e.g. openai/gpt-4o) while pricing keys may use bare model IDs.
+        pricing = MODEL_PRICING.get(model.split("/", 1)[1])
     if not pricing:
         return 0.0
     input_rate, output_rate = pricing
     return (prompt_tokens * input_rate + completion_tokens * output_rate) / 1_000_000
+
+
+def _is_subscription_model(model: str) -> bool:
+    model_l = (model or "").lower()
+    return any(model_l.startswith(prefix) for prefix in SUBSCRIPTION_MODEL_PREFIXES)
 
 
 def _write_batch_summary(
@@ -742,9 +756,10 @@ def _write_batch_summary(
     ranking_usage: dict[int, dict] | None = None,
     execution_metrics: dict[str, Any] | None = None,
 ) -> None:
-    """Write batch summary with model table and token/cost breakdown."""
+    """Write batch summary with model table and token/billing breakdown."""
     # Aggregate usage across all startups per agent
     aggregated: dict[int, dict] = {}
+    model_totals: dict[str, dict[str, int]] = {}
     fallback_counts: dict[int, int] = {}  # Track number of times each agent used fallback
     
     for _name, outputs in individual.items():
@@ -757,12 +772,27 @@ def _write_batch_summary(
                     "prompt_tokens": 0,
                     "completion_tokens": 0,
                     "total_tokens": 0,
+                    "calls": 0,
                 }
                 fallback_counts[agent_num] = 0
             
             aggregated[agent_num]["prompt_tokens"] += info["prompt_tokens"]
             aggregated[agent_num]["completion_tokens"] += info["completion_tokens"]
             aggregated[agent_num]["total_tokens"] += info["total_tokens"]
+            aggregated[agent_num]["calls"] += 1
+
+            model = info["model"]
+            if model not in model_totals:
+                model_totals[model] = {
+                    "calls": 0,
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
+                }
+            model_totals[model]["calls"] += 1
+            model_totals[model]["prompt_tokens"] += info["prompt_tokens"]
+            model_totals[model]["completion_tokens"] += info["completion_tokens"]
+            model_totals[model]["total_tokens"] += info["total_tokens"]
             
             # Track fallback occurrences
             if info.get("fallback_occurred"):
@@ -772,12 +802,31 @@ def _write_batch_summary(
     if ranking_usage:
         for agent_num, info in ranking_usage.items():
             agent_num = int(agent_num)
-            aggregated[agent_num] = {
-                "model": info["model"],
-                "prompt_tokens": info["prompt_tokens"],
-                "completion_tokens": info["completion_tokens"],
-                "total_tokens": info["total_tokens"],
-            }
+            if agent_num not in aggregated:
+                aggregated[agent_num] = {
+                    "model": info["model"],
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
+                    "calls": 0,
+                }
+            aggregated[agent_num]["prompt_tokens"] += info["prompt_tokens"]
+            aggregated[agent_num]["completion_tokens"] += info["completion_tokens"]
+            aggregated[agent_num]["total_tokens"] += info["total_tokens"]
+            aggregated[agent_num]["calls"] += 1
+
+            model = info["model"]
+            if model not in model_totals:
+                model_totals[model] = {
+                    "calls": 0,
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
+                }
+            model_totals[model]["calls"] += 1
+            model_totals[model]["prompt_tokens"] += info["prompt_tokens"]
+            model_totals[model]["completion_tokens"] += info["completion_tokens"]
+            model_totals[model]["total_tokens"] += info["total_tokens"]
 
     lines = [f"# Batch Summary — {batch_id}", ""]
     
@@ -835,25 +884,35 @@ def _write_batch_summary(
         lines.append(f"| {agent_num}     | {role:<30} | {model:<34} | {notes} |")
     lines.append("")
 
-    # Token usage & cost table
-    lines.append("## Token Usage & Cost")
+    # Token usage and billing by model
+    lines.append("## Model Usage & Billing")
     lines.append("")
-    lines.append("| Agent | Prompt Tokens | Completion Tokens | Total Tokens | Cost     |")
-    lines.append("|-------|---------------|-------------------|--------------|----------|")
-    total_cost = 0.0
-    for agent_num in sorted(aggregated.keys()):
-        info = aggregated[agent_num]
-        cost = _estimate_cost(info["model"], info["prompt_tokens"], info["completion_tokens"])
-        total_cost += cost
+    lines.append("| Model | Calls | Prompt Tokens | Completion Tokens | Total Tokens | Billing |")
+    lines.append("|-------|-------|---------------|-------------------|--------------|---------|")
+    total_calls = 0
+    total_metered_cost = 0.0
+    for model, info in sorted(model_totals.items(), key=lambda item: item[1]["total_tokens"], reverse=True):
+        total_calls += info["calls"]
+        if _is_subscription_model(model):
+            billing = "Subscription"
+        else:
+            cost = _estimate_cost(model, info["prompt_tokens"], info["completion_tokens"])
+            if cost > 0:
+                billing = f"${cost:.3f}"
+                total_metered_cost += cost
+            else:
+                billing = "N/A"
         lines.append(
-            f"| {agent_num}     | {info['prompt_tokens']:,}".ljust(22)
-            + f"| {info['completion_tokens']:,}".ljust(22)
+            f"| {model}"
+            + f" | {info['calls']:,}"
+            + f" | {info['prompt_tokens']:,}"
+            + f" | {info['completion_tokens']:,}"
             + f"| {info['total_tokens']:,}".ljust(15)
-            + f"| ${cost:.3f}".ljust(11) + "|"
+            + f"| {billing} |"
         )
-    lines.append(
-        f"| **Total** |               |                   |              | **${total_cost:.2f}** |"
-    )
+    lines.append(f"| **Total** | **{total_calls:,}** |  |  |  | **${total_metered_cost:.2f} metered** |")
+    lines.append("")
+    lines.append(f"**Total model calls**: {total_calls:,}")
     lines.append("")
 
     (out_dir / "batch_summary.md").write_text("\n".join(lines), encoding="utf-8")

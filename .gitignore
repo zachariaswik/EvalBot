@@ -7,6 +7,7 @@ __pycache__/
 
 # Environment variables (secrets — never commit)
 .env
+credentials.txt
 
 # Database files (local only)
 *.db
