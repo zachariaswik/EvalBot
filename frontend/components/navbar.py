@@ -98,7 +98,7 @@ def navbar() -> rx.Component:
                         "_hover": {"color": BLUE},
                     },
                 ),
-                rx.link(
+                rx.el.button(
                     rx.hstack(
                         rx.html(
                             '<svg width="9" height="11" viewBox="0 0 9 11" fill="currentColor">'
@@ -109,20 +109,17 @@ def navbar() -> rx.Component:
                         spacing="2",
                         align="center",
                     ),
-                    href="/run",
+                    disabled=True,
                     style={
                         "display": "inline-flex",
                         "alignItems": "center",
-                        "textDecoration": "none",
                         "background": BLUE,
                         "padding": "9px 20px",
                         "borderRadius": "8px",
                         "letterSpacing": "0.01em",
-                        "transition": "background 0.15s, box-shadow 0.15s",
-                        "_hover": {
-                            "background": BLUE_2,
-                            "boxShadow": f"0 4px 16px {BLUE_GLOW}",
-                        },
+                        "border": "none",
+                        "opacity": "0.45",
+                        "cursor": "not-allowed",
                     },
                 ),
                 spacing="8",

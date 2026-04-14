@@ -134,23 +134,23 @@ def dashboard_page() -> rx.Component:
                 spacing="1",
                 align="start",
             ),
-            rx.link(
+            rx.el.button(
                 rx.hstack(
                     rx.html('<svg width="9" height="11" viewBox="0 0 9 11" fill="currentColor"><polygon points="0,0 9,5.5 0,11"/></svg>'),
                     rx.text("Run New Batch", style={"fontSize": "14px", "fontWeight": "700", "color": "white"}),
                     spacing="2",
                     align="center",
                 ),
-                href="/run",
+                disabled=True,
                 style={
                     "display": "inline-flex",
                     "alignItems": "center",
                     "padding": "11px 24px",
                     "background": BLUE,
+                    "border": "none",
                     "borderRadius": "8px",
-                    "textDecoration": "none",
-                    "transition": "background 0.15s",
-                    "_hover": {"background": BLUE_2},
+                    "opacity": "0.45",
+                    "cursor": "not-allowed",
                 },
             ),
             justify="between",
