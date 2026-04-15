@@ -85,6 +85,8 @@ tail -f $(ls -t output/run_*.log | head -1)
 
 When the run finishes, click **View Results →** to go directly to the batch page, or navigate to **Dashboard** and select the batch from the list.
 
+On the startup detail page (`/batch/<batch_id>/<startup_name>`), click **Download PDF** to export the full EvalBot feedback report for that startup.
+
 ---
 
 ## 3. Command line

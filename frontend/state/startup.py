@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from urllib.parse import quote
 
 import reflex as rx
 
@@ -14,6 +15,26 @@ OUTPUT_DIR = PROJECT_ROOT / "output" / "Batch"
 def _db_path() -> Path | None:
     candidate = PROJECT_ROOT / "evalbot.db"
     return candidate if candidate.exists() else None
+
+
+def _get_backend_base() -> str:
+    env_file = PROJECT_ROOT / ".web" / "env.json"
+    try:
+        data = json.loads(env_file.read_text(encoding="utf-8"))
+        upload_url = data.get("UPLOAD", "")
+        if upload_url and "/_upload" in upload_url:
+            return upload_url.split("/_upload")[0]
+    except Exception:
+        pass
+    return ""
+
+
+def _build_download_pdf_url(batch_id: str, startup_name: str, backend_base: str = "") -> str:
+    encoded_batch = quote(batch_id, safe="")
+    encoded_startup = quote(startup_name, safe="")
+    path = f"/download-startup-pdf?batch_id={encoded_batch}&startup_name={encoded_startup}"
+    base = backend_base.strip().rstrip("/")
+    return f"{base}{path}" if base else path
 
 
 def _get_verdict_color(verdict: str) -> str:
@@ -55,6 +76,7 @@ def _get_startup_outputs(batch_id: str, startup_name: str) -> dict[int, dict]:
 class StartupState(rx.State):
     current_batch_id: str = ""
     current_startup_name: str = ""
+    download_pdf_url: str = ""
     verdict_color: str = "gray"
     active_tab: str = "market"
 
@@ -97,6 +119,9 @@ class StartupState(rx.State):
         startup_name = params.get("startup_name", "")
         self.current_batch_id = batch_id
         self.current_startup_name = startup_name
+        self.download_pdf_url = _build_download_pdf_url(
+            batch_id, startup_name, _get_backend_base()
+        )
 
         outputs = _get_startup_outputs(batch_id, startup_name)
         if not outputs:

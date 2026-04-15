@@ -47,7 +47,7 @@ A full-featured web UI is available at **http://167.99.43.130** (internal access
 |---|---|
 | `/` | Dashboard — all batches, stats, top startups |
 | `/batch/[batch_id]` | Batch leaderboard — scores, verdict distribution, shortlist |
-| `/batch/[batch_id]/[startup_name]` | Startup detail — radar chart, SWOT, analyst tabs |
+| `/batch/[batch_id]/[startup_name]` | Startup detail — radar chart, SWOT, analyst tabs, PDF feedback download |
 | `/run` | Run Batch — upload submissions, monitor live progress |
 | `/roadmap` | Feature roadmap |
 
@@ -163,6 +163,7 @@ Supported file types: `.pdf`, `.docx`, `.txt`, `.md`
 3. Repeat for each startup in the batch
 4. Click **Run Batch** — progress streams live in the terminal monitor
 5. When complete, click **View Results** to open the batch leaderboard
+6. Open a startup page and click **Download PDF** to export the full EvalBot feedback report
 
 ## Output Structure
 

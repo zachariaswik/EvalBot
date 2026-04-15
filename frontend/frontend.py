@@ -8,12 +8,13 @@ Production:
     reflex run --env prod --loglevel warning
 """
 
+import re
 from pathlib import Path
 
 import reflex as rx
 from reflex.utils import console as _rx_console
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 
 # Reflex warns every time a background task pushes a delta to a client that has
 # navigated away. The message is identical each time (same session token), so we
@@ -43,14 +44,16 @@ from frontend.pages.roadmap_detail import (
     platform_features_page,
     course_integration_page,
 )
+from frontend.pdf_report import generate_startup_feedback_pdf
 from frontend.state.dashboard import DashboardState
 from frontend.state.batch import BatchState
-from frontend.state.startup import StartupState
+from frontend.state.startup import StartupState, _get_startup_outputs
 from frontend.state.run import RunState
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _STARTUPS_DIR = PROJECT_ROOT / "Startups"
 _ALLOWED_EXTS = {".pdf", ".docx", ".txt", ".md"}
+_SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
 def _save_folder_files(
@@ -74,6 +77,27 @@ def _save_folder_files(
     if not saved:
         return [], "No supported files (.pdf .docx .txt .md) found in folder."
     return saved, None
+
+
+def _safe_download_filename(startup_name: str) -> str:
+    sanitized = _SAFE_FILENAME_RE.sub("_", startup_name.strip()).strip("._")
+    if not sanitized:
+        sanitized = "startup"
+    return f"{sanitized}_evalbot_feedback.pdf"
+
+
+def _build_startup_pdf_response(batch_id: str, startup_name: str) -> Response | JSONResponse:
+    outputs = _get_startup_outputs(batch_id, startup_name)
+    if not outputs:
+        return JSONResponse({"ok": False, "error": "Startup outputs not found."}, status_code=404)
+
+    pdf_bytes = generate_startup_feedback_pdf(batch_id, startup_name, outputs)
+    filename = _safe_download_filename(startup_name)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 app = rx.App(
@@ -105,7 +129,19 @@ async def _upload_startup_handler(request: Request) -> JSONResponse:
     return JSONResponse({"ok": True, "startup": startup_name.strip(), "files": saved})
 
 
+async def _download_startup_pdf_handler(request: Request) -> Response | JSONResponse:
+    batch_id = str(request.query_params.get("batch_id", "")).strip()
+    startup_name = str(request.query_params.get("startup_name", "")).strip()
+    if not batch_id or not startup_name:
+        return JSONResponse(
+            {"ok": False, "error": "batch_id and startup_name are required."},
+            status_code=400,
+        )
+    return _build_startup_pdf_response(batch_id, startup_name)
+
+
 app._api.add_route("/upload-startup", _upload_startup_handler, methods=["POST"])
+app._api.add_route("/download-startup-pdf", _download_startup_pdf_handler, methods=["GET"])
 
 app.add_page(
     dashboard_page,

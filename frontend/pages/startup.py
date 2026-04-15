@@ -52,6 +52,27 @@ def tab_button(label: str, tab_id: str) -> rx.Component:
     )
 
 
+def download_pdf_button() -> rx.Component:
+    return rx.el.a(
+        "Download PDF",
+        href=StartupState.download_pdf_url,
+        style={
+            "display": "inline-flex",
+            "alignItems": "center",
+            "padding": "8px 14px",
+            "background": BLUE_BG,
+            "border": f"1px solid {BORDER}",
+            "borderRadius": "8px",
+            "color": BLUE,
+            "fontSize": "12px",
+            "fontWeight": "700",
+            "textDecoration": "none",
+            "whiteSpace": "nowrap",
+            "_hover": {"background": "#dfe7fb"},
+        },
+    )
+
+
 # ── SWOT ─────────────────────────────────────────────────────────────────────
 
 def swot_panel(items: list[str] | rx.Var, title: str, bg: str, color: str, symbol: str) -> rx.Component:
@@ -411,17 +432,27 @@ def startup_page() -> rx.Component:
     return page_layout(
         # Breadcrumb
         rx.hstack(
-            rx.link("Dashboard", href="/", style={"color": BLUE, "fontSize": "13px", "fontWeight": "500", "textDecoration": "none"}),
-            rx.text("/", style={"color": TEXT_4}),
-            rx.link(
-                StartupState.current_batch_id,
-                href="/batch/" + StartupState.current_batch_id,
-                style={"color": BLUE, "fontSize": "13px", "fontWeight": "500", "textDecoration": "none"},
+            rx.hstack(
+                rx.link("Dashboard", href="/", style={"color": BLUE, "fontSize": "13px", "fontWeight": "500", "textDecoration": "none"}),
+                rx.text("/", style={"color": TEXT_4}),
+                rx.link(
+                    StartupState.current_batch_id,
+                    href="/batch/" + StartupState.current_batch_id,
+                    style={"color": BLUE, "fontSize": "13px", "fontWeight": "500", "textDecoration": "none"},
+                ),
+                rx.text("/", style={"color": TEXT_4}),
+                rx.text(StartupState.current_startup_name, style={"color": TEXT_2, "fontSize": "13px", "fontWeight": "500"}),
+                spacing="2",
+                align="center",
             ),
-            rx.text("/", style={"color": TEXT_4}),
-            rx.text(StartupState.current_startup_name, style={"color": TEXT_2, "fontSize": "13px", "fontWeight": "500"}),
-            spacing="2",
+            rx.cond(
+                (StartupState.current_batch_id != "") & (StartupState.current_startup_name != ""),
+                download_pdf_button(),
+                rx.box(),
+            ),
+            justify="between",
             align="center",
+            width="100%",
             style={"marginBottom": "28px"},
         ),
 

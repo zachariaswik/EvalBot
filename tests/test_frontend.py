@@ -264,6 +264,33 @@ def test_startup_load_from_fs(tmp_path, monkeypatch):
     assert outputs[2]["total_score"] == 60
 
 
+def test_startup_build_download_pdf_url_relative_encoded():
+    from frontend.state.startup import _build_download_pdf_url
+
+    url = _build_download_pdf_url("batch 1", "Artem Kalugin")
+    assert url == "/download-startup-pdf?batch_id=batch%201&startup_name=Artem%20Kalugin"
+
+
+def test_startup_build_download_pdf_url_with_backend_base():
+    from frontend.state.startup import _build_download_pdf_url
+
+    url = _build_download_pdf_url(
+        "batch_4", "Artem Kalugin", backend_base="http://localhost:8001/"
+    )
+    assert url == "http://localhost:8001/download-startup-pdf?batch_id=batch_4&startup_name=Artem%20Kalugin"
+
+
+def test_startup_get_backend_base_from_env(tmp_path, monkeypatch):
+    from frontend.state import startup as startup_mod
+
+    web_dir = tmp_path / ".web"
+    web_dir.mkdir()
+    (web_dir / "env.json").write_text('{"UPLOAD": "http://localhost:8001/_upload"}')
+    monkeypatch.setattr(startup_mod, "PROJECT_ROOT", tmp_path)
+
+    assert startup_mod._get_backend_base() == "http://localhost:8001"
+
+
 # ---------------------------------------------------------------------------
 # Run state helpers
 # ---------------------------------------------------------------------------
@@ -316,3 +343,61 @@ def test_read_run_state_missing(tmp_path, monkeypatch):
     monkeypatch.setattr(run_mod, "RUN_STATE_FILE", tmp_path / "nonexistent.json")
     result = run_mod._read_run_state()
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Startup PDF download helpers
+# ---------------------------------------------------------------------------
+
+def test_generate_startup_feedback_pdf_returns_pdf_bytes():
+    from frontend.pdf_report import generate_startup_feedback_pdf
+
+    outputs = {
+        1: {"one_line_description": "AI copilot for finance teams", "problem": "Slow forecasting"},
+        2: {"verdict": "Top VC Candidate", "total_score": 81, "swot": {"strengths": ["Strong founder fit"]}},
+        6: {"recommendation": "Continue", "thirty_day_plan": ["Ship pilot"], "ninety_day_plan": ["Close 10 customers"]},
+    }
+    pdf_bytes = generate_startup_feedback_pdf("batch_1", "Acme", outputs)
+
+    assert pdf_bytes.startswith(b"%PDF")
+    assert len(pdf_bytes) > 1000
+
+
+def test_safe_download_filename_sanitizes():
+    from frontend.frontend import _safe_download_filename
+
+    filename = _safe_download_filename(" Acme/Fin*Tech ")
+    assert filename.endswith("_evalbot_feedback.pdf")
+    assert "/" not in filename
+    assert "*" not in filename
+
+
+def test_build_startup_pdf_response_success(monkeypatch):
+    from frontend import frontend as fe
+
+    monkeypatch.setattr(
+        fe,
+        "_get_startup_outputs",
+        lambda batch_id, startup_name: {2: {"verdict": "Top VC Candidate", "total_score": 80}},
+    )
+    monkeypatch.setattr(
+        fe,
+        "generate_startup_feedback_pdf",
+        lambda batch_id, startup_name, outputs: b"%PDF-1.4\nfake",
+    )
+
+    response = fe._build_startup_pdf_response("batch_1", "Acme")
+    assert response.status_code == 200
+    assert response.media_type == "application/pdf"
+    assert response.body.startswith(b"%PDF")
+    assert "attachment;" in response.headers.get("content-disposition", "")
+
+
+def test_build_startup_pdf_response_not_found(monkeypatch):
+    from frontend import frontend as fe
+
+    monkeypatch.setattr(fe, "_get_startup_outputs", lambda batch_id, startup_name: {})
+    response = fe._build_startup_pdf_response("batch_1", "MissingCo")
+
+    assert response.status_code == 404
+    assert b"not found" in response.body.lower()
