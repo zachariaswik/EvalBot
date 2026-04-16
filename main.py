@@ -18,6 +18,7 @@ import logging
 
 import pdfplumber
 from dotenv import load_dotenv
+from frontend.pdf_report import generate_startup_feedback_pdf
 
 logging.getLogger("pdfminer").setLevel(logging.ERROR)
 
@@ -104,6 +105,29 @@ def _extract_startup_name(text: str) -> str:
 def _sanitize_filename(name: str) -> str:
     """Make a string safe for use as a filename."""
     return "".join(c if c.isalnum() or c in " _-" else "_" for c in name).strip()
+
+
+def _sorted_agent_numbers(agent_outputs: dict[int | str, Any]) -> list[int]:
+    """Return sorted agent numbers from mixed int/string output keys."""
+    keys: set[int] = set()
+    for key in agent_outputs.keys():
+        if isinstance(key, int):
+            keys.add(key)
+        elif isinstance(key, str) and key.isdigit():
+            keys.add(int(key))
+    return sorted(keys)
+
+
+def _int_keyed_agent_outputs(agent_outputs: dict[int | str, Any]) -> dict[int, dict[str, Any]]:
+    """Normalize mixed output keys to int keys for report generation."""
+    normalized: dict[int, dict[str, Any]] = {}
+    for agent_num in _sorted_agent_numbers(agent_outputs):
+        value = agent_outputs.get(agent_num)
+        if value is None:
+            value = agent_outputs.get(str(agent_num))
+        if isinstance(value, dict):
+            normalized[agent_num] = value
+    return normalized
 
 
 def _get_pdf_reference(pdf_path: Path) -> str:
@@ -1192,9 +1216,21 @@ def _write_startup_report(
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
+def _write_startup_pdf_report(
+    batch_id: str, startup_name: str, agent_outputs: dict[int | str, Any], path: Path
+) -> None:
+    """Write a styled PDF report for a single startup."""
+    pdf_bytes = generate_startup_feedback_pdf(
+        batch_id=batch_id,
+        startup_name=startup_name,
+        outputs=_int_keyed_agent_outputs(agent_outputs),
+    )
+    path.write_bytes(pdf_bytes)
+
+
 def export_results(
     batch_id: str,
-    individual: dict[str, dict[int, Any]],
+    individual: dict[str, dict[int | str, Any]],
     ranking: dict[str, Any] | None = None,
     ranking_usage: dict[int, dict] | None = None,
     execution_metrics: dict[str, Any] | None = None,
@@ -1221,6 +1257,12 @@ def export_results(
             encoding="utf-8",
         )
         _write_startup_report(startup_name, agent_outputs, startup_dir / f"{safe_name}.md")
+        _write_startup_pdf_report(
+            batch_id,
+            startup_name,
+            agent_outputs,
+            startup_dir / f"{safe_name}_evalbot_feedback.pdf",
+        )
 
     if ranking is not None:
         (out_dir / "ranking.json").write_text(
@@ -1544,9 +1586,12 @@ def main() -> None:
         )
         print("\n\nFINAL RESULTS")
         print("=" * 60)
-        for agent_num in sorted(k for k in result.keys() if isinstance(k, int)):
+        for agent_num in _sorted_agent_numbers(result):
+            payload = result.get(agent_num)
+            if payload is None:
+                payload = result.get(str(agent_num))
             print(f"\n--- Agent {agent_num} ---")
-            print(json.dumps(result[agent_num], indent=2, default=str))
+            print(json.dumps(payload, indent=2, default=str))
         if "_tags" in result:
             print(f"\n--- Tags ---")
             print(json.dumps(result["_tags"], indent=2, default=str))
@@ -1571,9 +1616,15 @@ def main() -> None:
         result = run_single(startup_name=name, submission_text=submission, batch_id=batch_id)
         print("\n\nFINAL RESULTS")
         print("=" * 60)
-        for agent_num in sorted(result.keys()):
+        for agent_num in _sorted_agent_numbers(result):
+            payload = result.get(agent_num)
+            if payload is None:
+                payload = result.get(str(agent_num))
             print(f"\n--- Agent {agent_num} ---")
-            print(json.dumps(result[agent_num], indent=2, default=str))
+            print(json.dumps(payload, indent=2, default=str))
+        if "_tags" in result:
+            print(f"\n--- Tags ---")
+            print(json.dumps(result["_tags"], indent=2, default=str))
 
         out_dir = export_results(batch_id, {name: result})
         print(f"\nResults saved to: {out_dir}")
@@ -1646,9 +1697,12 @@ def main() -> None:
             print(f"\n{'#'*40}")
             print(f"  {name}")
             print(f"{'#'*40}")
-            for agent_num in sorted(k for k in outputs.keys() if isinstance(k, int)):
+            for agent_num in _sorted_agent_numbers(outputs):
+                payload = outputs.get(agent_num)
+                if payload is None:
+                    payload = outputs.get(str(agent_num))
                 print(f"\n--- Agent {agent_num} ---")
-                print(json.dumps(outputs[agent_num], indent=2, default=str))
+                print(json.dumps(payload, indent=2, default=str))
             if "_tags" in outputs:
                 print(f"\n--- Tags ---")
                 print(json.dumps(outputs["_tags"], indent=2, default=str))
